@@ -6,6 +6,8 @@ import { dirname } from 'node:path';
 import { openDb } from './db.ts';
 import { createHandler } from './http.ts';
 import type { Route } from './http.ts';
+import { createGithub } from './github.ts';
+import { sessionRoutes } from './routes/session.ts';
 
 export type Config = {
   port: number;
@@ -54,14 +56,31 @@ export function applyLimits(
   server.maxConnections = maxConnections;
 }
 
-export async function start(config: Config): Promise<{ port: number; close: () => Promise<void> }> {
+export async function start(
+  config: Config,
+  opts: { fetch?: typeof fetch; log?: (line: string) => void } = {},
+): Promise<{ port: number; close: () => Promise<void> }> {
   if (config.databasePath !== ':memory:') mkdirSync(dirname(config.databasePath), { recursive: true });
   const db = openDb(config.databasePath);
   const routes: Route[] = [
     { method: 'GET', path: '/health', auth: false, handler: async () => ({ status: 200, body: { ok: true } }) },
+    ...sessionRoutes({
+      db,
+      github: createGithub({
+        clientId: config.githubClientId,
+        clientSecret: config.githubClientSecret,
+        fetch: opts.fetch ?? fetch,
+      }),
+      clientId: config.githubClientId,
+    }),
   ];
   const server = createServer(
-    createHandler({ routes, findSession: (key, now) => db.findSession(key, now), trustProxy: config.trustProxy }),
+    createHandler({
+      routes,
+      findSession: (key, now) => db.findSession(key, now),
+      trustProxy: config.trustProxy,
+      log: opts.log,
+    }),
   );
   applyLimits(server, config.maxConnections);
   await new Promise<void>((resolve) => server.listen(config.port, resolve));

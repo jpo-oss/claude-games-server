@@ -9,6 +9,7 @@ export type Ctx = {
   params: Record<string, string>;
   body: unknown;
   login: string | null;
+  sessionKey: string | null;
   ip: string;
   now: number;
   signal: AbortSignal;
@@ -66,6 +67,7 @@ export function createHandler(deps: {
     const ac = new AbortController();
     let pattern = path;
     let login: string | null = null;
+    let sessionKey: string | null = null;
 
     res.on('close', () => {
       if (!res.writableFinished) ac.abort();
@@ -148,10 +150,11 @@ export function createHandler(deps: {
         const m = /^Bearer (\S+)$/.exec(req.headers.authorization ?? '');
         login = m ? deps.findSession(m[1], now) : null;
         if (!login) return send(401, { error: 'sign in first' });
+        sessionKey = m![1];
         if (!perSession.take(login, now)) return send(429, { error: 'slow down' });
       }
 
-      const reply = await route.handler({ method, path, params, body, login, ip, now, signal: ac.signal });
+      const reply = await route.handler({ method, path, params, body, login, sessionKey, ip, now, signal: ac.signal });
       send(reply.status, reply.body);
     }
   };
