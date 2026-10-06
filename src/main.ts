@@ -10,6 +10,8 @@ import { createGithub } from './github.ts';
 import { sessionRoutes } from './routes/session.ts';
 import { marathonRoutes } from './routes/marathon.ts';
 import { createReplayer } from './replay.ts';
+import { createArena } from './arena.ts';
+import { battleRoutes } from './routes/battle.ts';
 
 export type Config = {
   port: number;
@@ -69,6 +71,7 @@ export async function start(
   if (config.databasePath !== ':memory:') mkdirSync(dirname(config.databasePath), { recursive: true });
   const db = openDb(config.databasePath);
   const replayer = opts.replayer ?? createReplayer({ maxConcurrent: 2, timeoutMs: 10_000, maxQueue: 32 });
+  const arena = createArena({ db, replayer, maxPlayers: config.maxPlayers, maxHeld: config.maxHeld });
   const routes: Route[] = [
     { method: 'GET', path: '/health', auth: false, handler: async () => ({ status: 200, body: { ok: true } }) },
     ...sessionRoutes({
@@ -81,6 +84,7 @@ export async function start(
       clientId: config.githubClientId,
     }),
     ...marathonRoutes({ db, replayer }),
+    ...battleRoutes(arena),
   ];
   const server = createServer(
     createHandler({
@@ -96,6 +100,7 @@ export async function start(
     port: (server.address() as AddressInfo).port,
     close: () =>
       new Promise<void>((resolve, reject) => {
+        arena.close();
         server.close((err) => {
           db.close();
           void replayer.close();

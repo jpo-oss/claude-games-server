@@ -75,7 +75,7 @@ export function createHandler(deps: {
     });
 
     const send = (status: number, body?: unknown, closeAfter = false) => {
-      if (res.headersSent) return;
+      if (res.headersSent || res.destroyed) return;
       const headers: Record<string, string> = {};
       if (closeAfter) headers.connection = 'close';
       if (body === undefined) {
