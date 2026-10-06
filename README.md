@@ -54,7 +54,7 @@ Keep copies somewhere other than the machine itself. To restore, stop the server
 
 ## Behind a CDN or another proxy
 
-Caddy ignores an incoming `X-Forwarded-For` header unless it trusts the sender. If you put a CDN or another proxy in front of Caddy, every player then looks like the proxy's address and they all share one rate limit. In the `Caddyfile`, set `trusted_proxies` (with `trusted_proxies_strict`) to the proxy's published IP ranges:
+Caddy ignores an incoming `X-Forwarded-For` header unless it trusts the sender, and the server takes the last address in that header. If you put a CDN or another proxy in front of Caddy, every player then looks like the proxy's address and they all share one rate limit. In the `Caddyfile`, trust the proxy's published IP ranges and pass only the client's address on:
 
 ```
 {
@@ -63,7 +63,16 @@ Caddy ignores an incoming `X-Forwarded-For` header unless it trusts the sender. 
 		trusted_proxies_strict
 	}
 }
+
+{$DOMAIN} {
+	encode zstd gzip
+	reverse_proxy server:8080 {
+		header_up X-Forwarded-For {client_ip}
+	}
+}
 ```
+
+Without the `header_up` line Caddy appends the proxy's own address, which is the one the server would use.
 
 See the [Caddy reverse_proxy docs](https://caddyserver.com/docs/caddyfile/directives/reverse_proxy#trusted_proxies) for the details.
 
