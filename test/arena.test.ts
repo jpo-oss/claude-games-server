@@ -555,18 +555,62 @@ test('a winner log far shorter than the match does not count', async () => {
   }
 });
 
-test('a player cannot queue again while their battle room exists', async () => {
+test('a player cannot queue again while their battle is undecided', async () => {
+  const s = await boot({ maxHeld: 0 });
+  try {
+    await s.pair();
+    for (const who of [s.alice, s.bob]) {
+      const busy = await s.queue(who);
+      assert.equal(busy.status, 409);
+      assert.deepEqual(await busy.json(), { error: 'already in a battle' });
+    }
+  } finally {
+    await s.close();
+  }
+});
+
+test('a player can queue again as soon as their battle has a result', async () => {
   const s = await boot({ maxHeld: 0 });
   try {
     const m = await s.pair();
-    const busy = await s.queue(s.alice);
-    assert.equal(busy.status, 409);
-    assert.deepEqual(await busy.json(), { error: 'already in a battle' });
     await s.syncJson(m.roomId, s.bob, { seq: 0, isOver: true });
-    assert.equal((await s.queue(s.bob)).status, 409);
-    assert.equal((await s.queue(s.alice)).status, 409);
-    s.clock.t += 60_001;
-    assert.deepEqual(await (await s.queue(s.alice)).json(), { status: 'waiting' });
+    const next = await s.pair();
+    assert.notEqual(next.roomId, m.roomId);
+  } finally {
+    await s.close();
+  }
+});
+
+test('the winner can still send the log for the old room after queueing again', async () => {
+  const s = await boot({ maxHeld: 0 });
+  try {
+    const m = await battle(s, { winnerLog: null });
+    const next = await s.pair();
+    assert.notEqual(next.roomId, m.roomId);
+    assert.equal((await s.sendLog(m.roomId, s.alice, honest(61_000, [[1_000, 1]]))).status, 204);
+    assert.deepEqual(await s.waitFinished(m.roomId), { winner: 'alice', counted: true });
+    assert.deepEqual(s.db.leaderboard(s.clock.t).wins, [{ login: 'alice', wins: 1 }]);
+    assert.equal((await s.syncJson(m.roomId, s.bob, { seq: 2 })).result?.winner, 'alice');
+  } finally {
+    await s.close();
+  }
+});
+
+test('sweeping the old room leaves the new match alone', async () => {
+  const s = await boot({ maxHeld: 0 });
+  try {
+    const m = await s.pair();
+    await s.syncJson(m.roomId, s.bob, { seq: 0, isOver: true });
+    const next = await s.pair();
+    for (let i = 0; i < 11; i++) {
+      s.clock.t += 6_000;
+      await s.syncJson(next.roomId, s.alice, { seq: i });
+      await s.syncJson(next.roomId, s.bob, { seq: i });
+    }
+    s.arena.sweep();
+    assert.equal((await s.sync(m.roomId, s.alice, { seq: 1 })).status, 404);
+    assert.equal((await s.sync(next.roomId, s.alice, { seq: 11 })).status, 200);
+    for (const who of [s.alice, s.bob]) assert.equal((await s.queue(who)).status, 409);
   } finally {
     await s.close();
   }

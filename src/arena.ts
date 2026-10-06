@@ -189,8 +189,8 @@ export function createArena(deps: {
       sweep();
       const t = now();
       const q = liveQueue(queue, t);
-      const current = roomOf.get(login);
-      if (current && rooms.has(current) && !(login in q.assigned)) {
+      const current = rooms.get(roomOf.get(login) ?? '');
+      if (current && current.state.result === null && !(login in q.assigned)) {
         return { status: 409, body: { error: 'already in a battle' } };
       }
       const known = q.waiting.some((w) => w.login === login) || login in q.assigned;
