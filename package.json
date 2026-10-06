@@ -1,0 +1,28 @@
+{
+  "name": "claude-games-server",
+  "description": "Game server for Block Battle, a falling-block game that runs inside Claude Code. It handles sign-in, the marathon leaderboard and head-to-head battles, and verifies scores by replaying games.",
+  "scripts": {
+    "test": "node --test",
+    "typecheck": "tsc --noEmit",
+    "start": "node src/main.ts"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jpo-oss/claude-games-server.git"
+  },
+  "license": "MIT",
+  "type": "module",
+  "bugs": {
+    "url": "https://github.com/jpo-oss/claude-games-server/issues"
+  },
+  "homepage": "https://github.com/jpo-oss/claude-games-server#readme",
+  "private": true,
+  "engines": {
+    "node": ">=24"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.4",
+    "typescript": "^7.0.2"
+  },
+  "version": "0.0.0"
+}
