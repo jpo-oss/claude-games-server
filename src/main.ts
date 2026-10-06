@@ -8,6 +8,8 @@ import { createHandler } from './http.ts';
 import type { Route } from './http.ts';
 import { createGithub } from './github.ts';
 import { sessionRoutes } from './routes/session.ts';
+import { marathonRoutes } from './routes/marathon.ts';
+import { createReplayer } from './replay.ts';
 
 export type Config = {
   port: number;
@@ -58,10 +60,15 @@ export function applyLimits(
 
 export async function start(
   config: Config,
-  opts: { fetch?: typeof fetch; log?: (line: string) => void } = {},
+  opts: {
+    fetch?: typeof fetch;
+    log?: (line: string) => void;
+    replayer?: Pick<ReturnType<typeof createReplayer>, 'run' | 'close'>;
+  } = {},
 ): Promise<{ port: number; close: () => Promise<void> }> {
   if (config.databasePath !== ':memory:') mkdirSync(dirname(config.databasePath), { recursive: true });
   const db = openDb(config.databasePath);
+  const replayer = opts.replayer ?? createReplayer({ maxConcurrent: 2, timeoutMs: 10_000, maxQueue: 32 });
   const routes: Route[] = [
     { method: 'GET', path: '/health', auth: false, handler: async () => ({ status: 200, body: { ok: true } }) },
     ...sessionRoutes({
@@ -73,6 +80,7 @@ export async function start(
       }),
       clientId: config.githubClientId,
     }),
+    ...marathonRoutes({ db, replayer }),
   ];
   const server = createServer(
     createHandler({
@@ -90,6 +98,7 @@ export async function start(
       new Promise<void>((resolve, reject) => {
         server.close((err) => {
           db.close();
+          void replayer.close();
           if (err) reject(err);
           else resolve();
         });

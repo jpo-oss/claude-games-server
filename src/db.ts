@@ -82,7 +82,8 @@ export function openDb(path: string) {
       `SELECT id, login, seed, started_at AS startedAt, finished_at AS finishedAt, score, lines, level
        FROM marathon_games WHERE id = ?`,
     ),
-    endGame: db.prepare('UPDATE marathon_games SET finished_at = ?, score = ?, lines = ?, level = ? WHERE id = ?'),
+    endGame: db.prepare('UPDATE marathon_games SET finished_at = ?, score = ?, lines = ?, level = ? WHERE id = ? AND finished_at IS NULL'),
+    open: db.prepare('SELECT COUNT(*) AS n FROM marathon_games WHERE login = ? AND finished_at IS NULL AND started_at >= ?'),
     best: db.prepare(
       `SELECT login, score, lines, level, at FROM (
          SELECT g.login, g.score, g.lines, g.level, g.finished_at AS at,
@@ -160,8 +161,13 @@ export function openDb(path: string) {
       return row ? { ...row } : null;
     },
 
-    finishMarathon(id: string, result: { score: number; lines: number; level: number } | null, now: number) {
-      q.endGame.run(now, result?.score ?? null, result?.lines ?? null, result?.level ?? null, id);
+    finishMarathon(id: string, result: { score: number; lines: number; level: number } | null, now: number): boolean {
+      const r = q.endGame.run(now, result?.score ?? null, result?.lines ?? null, result?.level ?? null, id);
+      return Number(r.changes) > 0;
+    },
+
+    openMarathons(login: string, since: number): number {
+      return (q.open.get(login, since) as { n: number }).n;
     },
 
     leaderboard(now: number): LeaderboardReply {
