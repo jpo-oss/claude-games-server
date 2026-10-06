@@ -17,12 +17,15 @@ const RETRIES = 3;
 const SWEEP_MS = 5_000;
 const KEEP_MS = 60_000;
 const MIN_MATCH_MS = 60_000;
+const GARBAGE_SLACK_STEPS = 125;
+const LENGTH_SLACK_MS = 5_000;
 const RETRYABLE = new Set(['busy', 'timeout', 'closed', 'replay failed']);
 
 type Held = { answer: (body: SyncReply) => void };
 type Live = {
   state: RoomState;
   delivered: Map<string, Map<number, number>>;
+  deliveredAt: Map<number, number>;
   seen: Map<string, string>;
   held: Map<string, Held>;
   logs: Map<string, GameLog>;
@@ -47,6 +50,9 @@ export function createArena(deps: {
   const winnerLogMs = deps.timing?.winnerLogMs ?? WINNER_LOG_MS;
   const retryMs = deps.timing?.retryMs ?? RETRY_MS;
   const rooms = new Map<string, Live>();
+  const roomOf = new Map<string, string>();
+  const undecided = new Set<Live>();
+  const waits = new Set<() => void>();
   const timers = new Set<NodeJS.Timeout>();
   let queue = emptyQueue();
   let heldCount = 0;
@@ -73,11 +79,16 @@ export function createArena(deps: {
 
   function toReply(live: Live, login: string, r: RoomReply): SyncReply {
     const got = live.delivered.get(login)!;
-    for (const a of r.incoming) got.set(a.id, a.lines);
+    // a client stops at the result, so attacks it has not seen before then are never delivered
+    const incoming = r.result ? r.incoming.filter((a) => got.has(a.id)) : r.incoming;
+    for (const a of incoming) {
+      got.set(a.id, a.lines);
+      if (!live.deliveredAt.has(a.id)) live.deliveredAt.set(a.id, now());
+    }
     live.seen.set(login, view(r.opponent));
     return {
       opponent: r.opponent,
-      incoming: r.incoming,
+      incoming,
       ...(r.result ? { result: { winner: r.result.winner } } : {}),
     };
   }
@@ -96,6 +107,7 @@ export function createArena(deps: {
   function finish(live: Live, winner: string | null, counted: boolean) {
     if (live.finished || closed) return;
     live.finished = true;
+    undecided.delete(live);
     cancel(live.logTimer);
     db.finishBattle(live.state.roomId, winner, counted, now());
   }
@@ -103,6 +115,7 @@ export function createArena(deps: {
   function remove(live: Live) {
     for (const login of [...live.held.keys()]) answer(live, login);
     rooms.delete(live.state.roomId);
+    for (const p of live.state.players) if (roomOf.get(p.login) === live.state.roomId) roomOf.delete(p.login);
   }
 
   function sweep() {
@@ -122,7 +135,14 @@ export function createArena(deps: {
     for (let i = 0; ; i++) {
       const r = await replayer.run(job);
       if (r.ok || !RETRYABLE.has(r.error) || i === RETRIES || closed) return r;
-      await new Promise<void>((resolve) => later(retryMs, resolve));
+      await new Promise<void>((resolve) => {
+        const done = () => {
+          waits.delete(done);
+          resolve();
+        };
+        waits.add(done);
+        later(retryMs, done);
+      });
     }
   }
 
@@ -130,13 +150,18 @@ export function createArena(deps: {
     const { seed, startedAt, resultAt, players } = live.state;
     const { winner, loser, reason } = live.state.result!;
     const winnerLog = live.logs.get(winner)!;
-    const loserLog = live.logs.get(loser);
     const got = live.delivered.get(winner)!;
-    const ids = (winnerLog.garbage ?? []).map(([, id]) => id);
+    const garbage = winnerLog.garbage ?? [];
+    const ids = garbage.map(([, id]) => id);
+    const onTime = garbage.every(
+      ([s, id]) => Math.abs(s - Math.round((live.deliveredAt.get(id)! - startedAt) / STEP_MS)) <= GARBAGE_SLACK_STEPS,
+    );
     let counted =
       ids.length === got.size &&
       new Set(ids).size === ids.length &&
       ids.every((id) => got.has(id)) &&
+      onTime &&
+      Math.abs(winnerLog.steps * STEP_MS - (resultAt! - startedAt)) <= LENGTH_SLACK_MS &&
       resultAt! - startedAt >= MIN_MATCH_MS;
     if (counted) {
       const w = await run({ seed, mode: 'battle', log: winnerLog, garbage: got });
@@ -146,6 +171,7 @@ export function createArena(deps: {
         w.attacks.reduce((a, b) => a + b, 0) >= sent &&
         (!w.isOver || (reason === 'forfeit' && startedAt + w.topOutStep! * STEP_MS >= resultAt!));
     }
+    const loserLog = live.logs.get(loser);
     if (counted && loserLog) {
       const l = await run({ seed, mode: 'battle', log: loserLog, garbage: live.delivered.get(loser)! });
       counted = l.ok && l.isOver;
@@ -160,24 +186,31 @@ export function createArena(deps: {
       sweep();
       const t = now();
       const q = liveQueue(queue, t);
+      const current = roomOf.get(login);
+      if (current && rooms.has(current) && !(login in q.assigned)) {
+        return { status: 409, body: { error: 'already in a battle' } };
+      }
       const known = q.waiting.some((w) => w.login === login) || login in q.assigned;
-      const inRooms = [...rooms.values()].filter((r) => !r.state.result).length * 2;
-      if (!known && q.waiting.length + inRooms + 1 > maxPlayers) {
+      if (!known && q.waiting.length + rooms.size * 2 + 1 > maxPlayers) {
         return { status: 503, body: { error: 'server busy' } };
       }
       const out = joinQueue(q, login, t, () => ({ roomId: randomBytes(16).toString('base64url'), seed: randomInt(0, 2 ** 32) }));
       if (out.room) {
         const { roomId, seed, players } = out.room;
         db.recordBattle(roomId, players[0], players[1], seed, t);
-        rooms.set(roomId, {
+        const live: Live = {
           state: newRoom(roomId, seed, players, t),
           delivered: new Map(players.map((p) => [p, new Map()])),
+          deliveredAt: new Map(),
           seen: new Map(players.map((p) => [p, view({ snapshot: '', isOver: false })])),
           held: new Map(),
           logs: new Map(),
           verifying: false,
           finished: false,
-        });
+        };
+        rooms.set(roomId, live);
+        undecided.add(live);
+        for (const p of players) roomOf.set(p, roomId);
       }
       queue = out.state;
       return { status: 200, body: out.result };
@@ -257,7 +290,9 @@ export function createArena(deps: {
     close() {
       if (closed) return;
       for (const live of rooms.values()) for (const login of [...live.held.keys()]) answer(live, login);
+      for (const live of [...undecided]) finish(live, null, false);
       closed = true;
+      for (const done of [...waits]) done();
       clearInterval(sweeper);
       for (const t of timers) clearTimeout(t);
       timers.clear();

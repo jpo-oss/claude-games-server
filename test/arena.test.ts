@@ -123,27 +123,34 @@ function topOutLog(seed: number): GameLog {
   throw new Error('never topped out');
 }
 
-// bob sends alice a 3-line attack, then tops out after `lastsMs`
+// bob sends alice a 3-line attack a second in, then tops out after `lastsMs`
 async function battle(
   s: Awaited<ReturnType<typeof boot>>,
-  opts: { lastsMs?: number; aliceAttacks?: number[]; winnerGarbage?: boolean; winnerLog?: boolean; loserLog?: GameLog } = {},
+  opts: { lastsMs?: number; aliceAttacks?: number[]; bobFinalAttacks?: number[]; winnerLog?: GameLog | null; loserLog?: GameLog } = {},
 ) {
+  const lastsMs = opts.lastsMs ?? 61_000;
   const m = await s.pair();
   s.clock.t += 1_000;
   await s.syncJson(m.roomId, s.bob, { seq: 0, attacks: [3] });
   const a0 = await s.syncJson(m.roomId, s.alice, { seq: 0, attacks: opts.aliceAttacks ?? [], snapshot: 'T' });
   assert.deepEqual(a0.incoming, [{ id: 1, lines: 3 }]);
-  s.clock.t += (opts.lastsMs ?? 61_000) - 1_000;
-  const b1 = await s.syncJson(m.roomId, s.bob, { seq: 1, isOver: true });
+  s.clock.t += lastsMs - 1_000;
+  const b1 = await s.syncJson(m.roomId, s.bob, { seq: 1, isOver: true, attacks: opts.bobFinalAttacks ?? [] });
   assert.deepEqual(b1.result, { winner: 'alice' });
   const a1 = await s.syncJson(m.roomId, s.alice, { seq: 1, snapshot: 'T' });
   assert.deepEqual(a1.result, { winner: 'alice' });
+  assert.deepEqual(a1.incoming, []);
   assert.equal((await s.sendLog(m.roomId, s.bob, opts.loserLog ?? topOutLog(m.seed))).status, 204);
-  if (opts.winnerLog !== false) {
-    const log: GameLog = { steps: 30, inputs: [], ...(opts.winnerGarbage === false ? {} : { garbage: [[1, 1]] }) };
+  if (opts.winnerLog !== null) {
+    const log = opts.winnerLog ?? honest(lastsMs, [[1_000, 1]]);
     assert.equal((await s.sendLog(m.roomId, s.alice, log)).status, 204);
   }
   return m;
+}
+
+// no inputs, each attack applied at the step it arrived; lasts as long as the match
+function honest(ms: number, garbage: [number, number][]): GameLog {
+  return { steps: Math.round(ms / 16), inputs: [], garbage: garbage.map(([at, id]) => [Math.round(at / 16), id]) };
 }
 
 const pending = (p: Promise<unknown>) => {
@@ -373,7 +380,7 @@ test('an honest win counts and shows on the leaderboard', async () => {
 test('a winner log that leaves out delivered garbage does not count', async () => {
   const s = await boot({ maxHeld: 0 });
   try {
-    const m = await battle(s, { winnerGarbage: false });
+    const m = await battle(s, { winnerLog: honest(61_000, []) });
     assert.deepEqual(await s.waitFinished(m.roomId), { winner: 'alice', counted: false });
   } finally {
     await s.close();
@@ -400,6 +407,118 @@ test('a loser log that does not top out spoils the win', async () => {
   }
 });
 
+test('an attack in the same reply as the result is not delivered and the win counts', async () => {
+  const s = await boot({ maxHeld: 0 });
+  try {
+    const m = await battle(s, { bobFinalAttacks: [2] });
+    assert.deepEqual(await s.waitFinished(m.roomId), { winner: 'alice', counted: true });
+  } finally {
+    await s.close();
+  }
+});
+
+test('a forfeit win with attacks still in the inbox counts', async () => {
+  const s = await boot({ maxHeld: 0 });
+  try {
+    const m = await s.pair();
+    s.clock.t += 1_000;
+    await s.syncJson(m.roomId, s.bob, { seq: 0, attacks: [3] });
+    assert.deepEqual((await s.syncJson(m.roomId, s.alice, { seq: 0 })).incoming, [{ id: 1, lines: 3 }]);
+    await s.syncJson(m.roomId, s.bob, { seq: 1, attacks: [2] });
+    s.clock.t += 60_000;
+    const a = await s.syncJson(m.roomId, s.alice, { seq: 1 });
+    assert.deepEqual(a.result, { winner: 'alice' });
+    assert.deepEqual(a.incoming, []);
+    assert.equal((await s.sendLog(m.roomId, s.alice, honest(61_000, [[1_000, 1]]))).status, 204);
+    assert.deepEqual(await s.waitFinished(m.roomId), { winner: 'alice', counted: true });
+  } finally {
+    await s.close();
+  }
+});
+
+test('garbage held back to the end of the log does not count', async () => {
+  const s = await boot({ maxHeld: 0 });
+  try {
+    const m = await battle(s, { winnerLog: honest(61_000, [[61_000, 1]]) });
+    assert.deepEqual(await s.waitFinished(m.roomId), { winner: 'alice', counted: false });
+  } finally {
+    await s.close();
+  }
+});
+
+test('garbage applied within 2 s of delivery still counts', async () => {
+  const s = await boot({ maxHeld: 0 });
+  try {
+    const m = await battle(s, { winnerLog: honest(61_000, [[2_900, 1]]) });
+    assert.deepEqual(await s.waitFinished(m.roomId), { winner: 'alice', counted: true });
+  } finally {
+    await s.close();
+  }
+});
+
+test('a winner log far shorter than the match does not count', async () => {
+  const s = await boot({ maxHeld: 0 });
+  try {
+    const m = await battle(s, { winnerLog: { steps: 30, inputs: [], garbage: [[30, 1]] } });
+    assert.deepEqual(await s.waitFinished(m.roomId), { winner: 'alice', counted: false });
+  } finally {
+    await s.close();
+  }
+});
+
+test('a player cannot queue again while their battle room exists', async () => {
+  const s = await boot({ maxHeld: 0 });
+  try {
+    const m = await s.pair();
+    const busy = await s.queue(s.alice);
+    assert.equal(busy.status, 409);
+    assert.deepEqual(await busy.json(), { error: 'already in a battle' });
+    await s.syncJson(m.roomId, s.bob, { seq: 0, isOver: true });
+    assert.equal((await s.queue(s.bob)).status, 409);
+    assert.equal((await s.queue(s.alice)).status, 409);
+    s.clock.t += 60_001;
+    assert.deepEqual(await (await s.queue(s.alice)).json(), { status: 'waiting' });
+  } finally {
+    await s.close();
+  }
+});
+
+test('an ended room counts toward maxPlayers until it is removed', async () => {
+  const s = await boot({ maxPlayers: 2, maxHeld: 0 });
+  try {
+    const m = await s.pair();
+    await s.syncJson(m.roomId, s.bob, { seq: 0, isOver: true });
+    const carol = await s.signIn('carol', 3);
+    assert.equal((await s.queue(carol)).status, 503);
+    s.clock.t += 60_001;
+    assert.equal((await s.queue(carol)).status, 200);
+  } finally {
+    await s.close();
+  }
+});
+
+test('closing the arena finishes undecided battles once', async () => {
+  const s = await boot({ maxHeld: 0 });
+  const live = await s.pair(await s.signIn('carol', 3), await s.signIn('dave', 4));
+  const waiting = await battle(s, { winnerLog: null });
+  s.arena.close();
+  assert.deepEqual(s.finished.get(live.roomId), { winner: null, counted: false });
+  assert.deepEqual(s.finished.get(waiting.roomId), { winner: null, counted: false });
+  await s.close();
+});
+
+test('closing the arena ends a battle stuck waiting to retry a replay', async () => {
+  const replayer: Replayer = { run: async () => ({ ok: false, error: 'busy' }), close: async () => {} };
+  const s = await boot({ maxHeld: 0, replayer, timing: { retryMs: 60_000 } });
+  const m = await battle(s);
+  await sleep(50);
+  assert.equal(s.finished.has(m.roomId), false);
+  s.arena.close();
+  assert.deepEqual(s.finished.get(m.roomId), { winner: null, counted: false });
+  await sleep(50);
+  await s.close();
+});
+
 test('a 45 s match does not count', async () => {
   const s = await boot({ maxHeld: 0 });
   try {
@@ -415,6 +534,7 @@ test('a second win for the same pair on the same UTC day does not count', async 
   try {
     const one = await battle(s);
     assert.deepEqual(await s.waitFinished(one.roomId), { winner: 'alice', counted: true });
+    s.clock.t += 60_001;
     const two = await battle(s);
     assert.deepEqual(await s.waitFinished(two.roomId), { winner: 'alice', counted: false });
   } finally {
@@ -425,7 +545,7 @@ test('a second win for the same pair on the same UTC day does not count', async 
 test('no winner log in time finishes the battle without a winner', async () => {
   const s = await boot({ maxHeld: 0, timing: { winnerLogMs: 200 } });
   try {
-    const m = await battle(s, { winnerLog: false });
+    const m = await battle(s, { winnerLog: null });
     assert.deepEqual(await s.waitFinished(m.roomId), { winner: null, counted: false });
     const late = await s.sendLog(m.roomId, s.alice, { steps: 30, inputs: [], garbage: [[1, 1]] });
     assert.equal(late.status, 204);
