@@ -75,7 +75,7 @@ Logged: method, route, status, login and duration for each request. Tokens, requ
 
 ## Limits and tuning
 
-Set these in `.env`. Only the first three are listed in `.env.example`.
+Set these in `.env`. The compose file already sets `TRUST_PROXY`, and the container sets `PORT` and `DATABASE_PATH`, so leave those alone unless you run without Docker.
 
 | Variable | Default | What it does |
 |---|---|---|
