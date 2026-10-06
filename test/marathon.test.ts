@@ -2,11 +2,14 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { newGame, step } from '../src/engine.ts';
 import type { Game } from '../src/engine.ts';
-import { encodeLog } from '../src/protocol.ts';
+import { MAX_STEPS, encodeLog } from '../src/protocol.ts';
 import type { ReplayLog } from '../src/protocol.ts';
 import { createReplayer } from '../src/replay.ts';
 import type { ReplayResult } from '../src/replay.ts';
 import { start } from '../src/main.ts';
+import { openDb } from '../src/db.ts';
+import { marathonRoutes } from '../src/routes/marathon.ts';
+import type { Ctx } from '../src/http.ts';
 
 const cfg = { port: 0, databasePath: ':memory:', githubClientId: 'cid', githubClientSecret: 'csecret', maxHeld: 10, maxPlayers: 10, maxConnections: 50, trustProxy: false };
 
@@ -173,5 +176,32 @@ test('a 200000-pair log fits under the body cap', async () => {
     assert.deepEqual(await r.json(), { error: 'faster than real time' });
   } finally {
     await s.close();
+  }
+});
+
+test('a game left open too long is 410 and finished as rejected', async () => {
+  const db = openDb(':memory:');
+  try {
+    db.upsertPlayer({ login: 'alice', githubId: 7, githubCreatedAt: 0 }, 0);
+    const t0 = Date.UTC(2026, 9, 6);
+    const replays: unknown[] = [];
+    const replayer = { run: async (job: unknown): Promise<ReplayResult> => (replays.push(job), { ok: true, score: 1, lines: 0, level: 1, isOver: true, topOutStep: 0, attacks: [] }) };
+    const scores = marathonRoutes({ db, replayer }).find((r) => r.path === '/v1/scores')!;
+    const submit = (gameId: string, now: number) =>
+      scores.handler({ body: { gameId, log: { steps: 1, inputs: [] } }, login: 'alice', now } as Ctx);
+    const limit = MAX_STEPS * 16 + 5 * 60_000;
+
+    const late = db.startMarathon('alice', 1, t0);
+    assert.deepEqual(await submit(late, t0 + limit + 1), { status: 410, body: { error: 'game expired' } });
+    const row = db.getMarathon(late)!;
+    assert.notEqual(row.finishedAt, null);
+    assert.equal(row.score, null);
+    assert.equal((await submit(late, t0 + limit + 2)).status, 409);
+    assert.equal(replays.length, 0);
+
+    const onTime = db.startMarathon('alice', 1, t0);
+    assert.equal((await submit(onTime, t0 + limit)).status, 200);
+  } finally {
+    db.close();
   }
 });

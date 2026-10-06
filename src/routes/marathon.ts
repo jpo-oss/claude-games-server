@@ -2,13 +2,14 @@ import { randomInt } from 'node:crypto';
 import type { Db } from '../db.ts';
 import type { Route } from '../http.ts';
 import type { ReplayResult } from '../replay.ts';
-import { parseScoreBody } from '../protocol.ts';
+import { MAX_STEPS, parseScoreBody } from '../protocol.ts';
 import type { ReplayLog, MarathonStartReply } from '../protocol.ts';
 
 const STEP_MS = 16;
 const SLACK_MS = 5_000;
 const MAX_OPEN = 5;
 const OPEN_WINDOW = 2 * 3600 * 1000;
+const EXPIRE_MS = MAX_STEPS * STEP_MS + 5 * 60_000;
 const RETRYABLE = new Set(['busy', 'timeout', 'closed', 'replay failed']);
 
 type Deps = {
@@ -53,11 +54,12 @@ export function marathonRoutes(deps: Deps): Route[] {
         if (!game || game.login !== ctx.login) return { status: 404, body: { error: 'no such game' } };
         if (game.finishedAt !== null) return { status: 409, body: { error: 'already submitted' } };
 
-        const reject = (error: string) =>
+        const reject = (error: string, status = 422) =>
           db.finishMarathon(gameId, null, ctx.now)
-            ? { status: 422, body: { error } }
+            ? { status, body: { error } }
             : { status: 409, body: { error: 'already submitted' } };
 
+        if (ctx.now - game.startedAt > EXPIRE_MS) return reject('game expired', 410);
         if (log.steps * STEP_MS > ctx.now - game.startedAt + SLACK_MS) return reject('faster than real time');
         const r = await replayer.run({ seed: game.seed, mode: 'marathon', log });
         if (!r.ok) {
