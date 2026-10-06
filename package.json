@@ -4,7 +4,8 @@
   "scripts": {
     "test": "node --test",
     "typecheck": "tsc --noEmit",
-    "start": "node src/main.ts"
+    "start": "node src/main.ts",
+    "check-engine": "node scripts/check-engine.ts"
   },
   "repository": {
     "type": "git",
