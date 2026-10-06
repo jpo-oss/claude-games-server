@@ -15,3 +15,5 @@ npm run typecheck  # tsc --noEmit
 - Nothing about any particular deployment (provider, region, hostnames, deploy targets) goes in this repo, including the maintainers' own.
 - Writing: plain and short. No em dashes, no emojis. Comments only where the code can't explain itself.
 - Commits follow Conventional Commits (`feat:`, `fix:`, `chore:`, ...).
+
+Behind a proxy, set TRUST_PROXY=true only if the proxy appends the client address to X-Forwarded-For.

@@ -1,4 +1,5 @@
 import { createServer } from 'node:http';
+import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
@@ -13,6 +14,7 @@ export type Config = {
   githubClientSecret: string;
   maxHeld: number;
   maxPlayers: number;
+  maxConnections: number;
   trustProxy: boolean;
 };
 
@@ -36,8 +38,20 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
     githubClientSecret: need('GITHUB_CLIENT_SECRET'),
     maxHeld: int('MAX_HELD', 2000),
     maxPlayers: int('MAX_PLAYERS', 1000),
+    maxConnections: int('MAX_CONNECTIONS', 4000),
     trustProxy: env.TRUST_PROXY === 'true',
   };
+}
+
+export function applyLimits(
+  server: Server,
+  maxConnections: number,
+  t = { headers: 10_000, request: 15_000, keepAlive: 5_000 },
+) {
+  server.headersTimeout = t.headers;
+  server.requestTimeout = t.request;
+  server.keepAliveTimeout = t.keepAlive;
+  server.maxConnections = maxConnections;
 }
 
 export async function start(config: Config): Promise<{ port: number; close: () => Promise<void> }> {
@@ -49,6 +63,7 @@ export async function start(config: Config): Promise<{ port: number; close: () =
   const server = createServer(
     createHandler({ routes, findSession: (key, now) => db.findSession(key, now), trustProxy: config.trustProxy }),
   );
+  applyLimits(server, config.maxConnections);
   await new Promise<void>((resolve) => server.listen(config.port, resolve));
   return {
     port: (server.address() as AddressInfo).port,

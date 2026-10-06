@@ -1,3 +1,4 @@
+import { isIP } from 'node:net';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { PROTOCOL_VERSION } from './protocol.ts';
 import { bucket } from './limits.ts';
@@ -109,8 +110,8 @@ export function createHandler(deps: {
       }
 
       const fwd = req.headers['x-forwarded-for'];
-      const forwarded = typeof fwd === 'string' ? fwd.split(',')[0].trim() : '';
-      const ip = (deps.trustProxy && forwarded) || req.socket.remoteAddress || 'unknown';
+      const forwarded = typeof fwd === 'string' ? (fwd.split(',').pop() ?? '').trim() : '';
+      const ip = (deps.trustProxy && isIP(forwarded) ? forwarded : req.socket.remoteAddress) || 'unknown';
       const now = clock();
       if (!perIp.take(ip, now)) return send(429, { error: 'slow down' });
       const rb = routeBuckets.get(route);

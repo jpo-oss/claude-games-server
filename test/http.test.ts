@@ -1,10 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
+import { connect } from 'node:net';
 import type { AddressInfo } from 'node:net';
 import { createHandler } from '../src/http.ts';
 import type { Route } from '../src/http.ts';
-import { loadConfig } from '../src/main.ts';
+import { applyLimits, loadConfig } from '../src/main.ts';
 
 const routes: Route[] = [
   { method: 'GET', path: '/health', auth: false, handler: async () => ({ status: 200, body: { ok: true } }) },
@@ -163,7 +164,7 @@ test('X-Forwarded-For only honored with trustProxy', async () => {
   const h = { authorization: 'Bearer good', 'x-forwarded-for': '9.9.9.9, 1.1.1.1' };
   try {
     assert.equal((await (await off.call('/me', { headers: h })).json()).ip, '127.0.0.1');
-    assert.equal((await (await on.call('/me', { headers: h })).json()).ip, '9.9.9.9');
+    assert.equal((await (await on.call('/me', { headers: h })).json()).ip, '1.1.1.1');
   } finally { off.close(); on.close(); }
 });
 
@@ -175,6 +176,7 @@ test('loadConfig defaults', () => {
     githubClientSecret: 's',
     maxHeld: 2000,
     maxPlayers: 1000,
+    maxConnections: 4000,
     trustProxy: false,
   });
 });
@@ -191,4 +193,54 @@ test('loadConfig errors', () => {
   assert.throws(() => loadConfig({ GITHUB_CLIENT_SECRET: 's' }), /GITHUB_CLIENT_ID/);
   assert.throws(() => loadConfig({ GITHUB_CLIENT_ID: 'i', GITHUB_CLIENT_SECRET: 's', PORT: 'abc' }), /PORT/);
   assert.throws(() => loadConfig({ GITHUB_CLIENT_ID: 'i', GITHUB_CLIENT_SECRET: 's', MAX_HELD: '0' }), /MAX_HELD/);
+  assert.throws(() => loadConfig({ GITHUB_CLIENT_ID: 'i', GITHUB_CLIENT_SECRET: 's', MAX_CONNECTIONS: '-1' }), /MAX_CONNECTIONS/);
+});
+
+test('last X-Forwarded-For entry wins, garbage falls back to the socket', async () => {
+  const on = await serve({ trustProxy: true });
+  const ip = async (xff: string) =>
+    (await (await on.call('/me', { headers: { authorization: 'Bearer good', 'x-forwarded-for': xff } })).json()).ip;
+  try {
+    assert.equal(await ip('6.6.6.6, 7.7.7.7, 2001:db8::1'), '2001:db8::1');
+    assert.equal(await ip('1.1.1.1, not-an-ip'), '127.0.0.1');
+    assert.equal(await ip('1.1.1.1, ' + 'a'.repeat(8000)), '127.0.0.1');
+    assert.equal(await ip('1.1.1.1,'), '127.0.0.1');
+  } finally { on.close(); }
+});
+
+test('applyLimits sets the timeouts and connection cap', () => {
+  const server = createServer();
+  applyLimits(server, 123);
+  assert.deepEqual(
+    [server.headersTimeout, server.requestTimeout, server.keepAliveTimeout, server.maxConnections],
+    [10_000, 15_000, 5_000, 123],
+  );
+});
+
+test('a handler that outlives requestTimeout after the body is read still completes', async () => {
+  const slow: Route = {
+    method: 'POST', path: '/hold', auth: false,
+    handler: async () => { await new Promise((r) => setTimeout(r, 700)); return { status: 200, body: { held: true } }; },
+  };
+  const server = createServer({ connectionsCheckingInterval: 50 }, createHandler({ routes: [slow], findSession: () => null, trustProxy: false, log: () => {} }));
+  applyLimits(server, 100, { headers: 200, request: 300, keepAlive: 200 });
+  await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+  const port = (server.address() as AddressInfo).port;
+  try {
+    const res = await fetch(`http://127.0.0.1:${port}/hold`, { method: 'POST', headers: { 'x-protocol-version': '2' }, body: '{}' });
+    assert.equal(res.status, 200);
+    assert.deepEqual(await res.json(), { held: true });
+
+    const status = await new Promise<string>((resolve) => {
+      const sock = connect(port, '127.0.0.1', () =>
+        sock.write('POST /hold HTTP/1.1\r\nHost: x\r\nX-Protocol-Version: 2\r\nContent-Length: 100\r\n\r\n{'));
+      let data = '';
+      sock.on('data', (d) => (data += d));
+      sock.on('close', () => resolve(data.split('\r\n')[0]));
+    });
+    assert.match(status, /408/);
+  } finally {
+    server.closeAllConnections();
+    server.close();
+  }
 });
