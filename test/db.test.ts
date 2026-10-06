@@ -150,3 +150,30 @@ test('once-per-day pair check across UTC midnight', () => {
   assert.equal(db.countedToday('ann', 'bob', Date.UTC(2026, 9, 7, 0, 0, 0)), false);
   assert.equal(db.countedToday('ann', 'bob', Date.UTC(2026, 9, 7, 0, 1, 0)), false);
 });
+
+test('a login taken over by another account keeps every returned login valid', () => {
+  const db = openDb(':memory:');
+  const valid = /^[A-Za-z0-9-]{1,39}$/;
+  db.upsertPlayer({ login: 'ann', githubId: 7, githubCreatedAt: OLD }, NOW);
+  db.upsertPlayer({ login: 'bob', githubId: 8, githubCreatedAt: OLD }, NOW);
+  const oldKey = db.createSession('ann', NOW);
+  score(db, 'ann', 500, NOW - 100);
+  win(db, 'r1', 'ann', 'bob', 'ann', NOW - 50);
+
+  db.upsertPlayer({ login: 'ann', githubId: 9, githubCreatedAt: OLD }, NOW + 1);
+  const newKey = db.createSession('ann', NOW + 1);
+  score(db, 'ann', 40, NOW + 2);
+
+  assert.equal(db.findSession(oldKey, NOW + 3), null);
+  assert.equal(db.findSession(newKey, NOW + 3), 'ann');
+  let lb = db.leaderboard(NOW + 3);
+  const logins = [...lb.marathon.map((r) => r.login), ...lb.wins.map((r) => r.login), db.findSession(newKey, NOW + 3)];
+  for (const l of logins) assert.match(l as string, valid);
+  assert.deepEqual(lb.marathon.map((r) => [r.login, r.score]), [['ann', 40]]);
+  assert.deepEqual(lb.wins, []);
+
+  db.upsertPlayer({ login: 'ann-two', githubId: 7, githubCreatedAt: OLD }, NOW + 4);
+  lb = db.leaderboard(NOW + 5);
+  assert.deepEqual(lb.marathon.map((r) => [r.login, r.score]), [['ann-two', 500], ['ann', 40]]);
+  assert.deepEqual(lb.wins, [{ login: 'ann-two', wins: 1 }]);
+});

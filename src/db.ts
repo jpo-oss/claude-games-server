@@ -66,7 +66,9 @@ export function openDb(path: string) {
   db.exec(SCHEMA);
 
   const q = {
-    freeLogin: db.prepare("UPDATE players SET login = login || '#' || github_id WHERE login = ? AND github_id != ?"),
+    staleHolder: db.prepare('SELECT github_id FROM players WHERE login = ? AND github_id != ?'),
+    dropSessions: db.prepare('DELETE FROM sessions WHERE login = ?'),
+    ghost: db.prepare("UPDATE players SET login = 'ghost-' || github_id WHERE github_id = ?"),
     upsert: db.prepare(
       `INSERT INTO players (login, github_id, github_created_at, created_at) VALUES (?, ?, ?, ?)
        ON CONFLICT(github_id) DO UPDATE SET login = excluded.login, github_created_at = excluded.github_created_at`,
@@ -86,13 +88,13 @@ export function openDb(path: string) {
          SELECT g.login, g.score, g.lines, g.level, g.finished_at AS at,
                 ROW_NUMBER() OVER (PARTITION BY g.login ORDER BY g.score DESC, g.finished_at ASC) AS rn
          FROM marathon_games g JOIN players p ON p.login = g.login
-         WHERE g.score IS NOT NULL AND g.finished_at IS NOT NULL AND p.github_created_at <= ?
+         WHERE p.login <> 'ghost-' || p.github_id AND g.score IS NOT NULL AND g.finished_at IS NOT NULL AND p.github_created_at <= ?
        ) WHERE rn = 1 ORDER BY score DESC, at ASC LIMIT 5`,
     ),
     wins: db.prepare(
       `SELECT b.winner AS login, COUNT(*) AS wins
        FROM battles b JOIN players p ON p.login = b.winner
-       WHERE b.counted = 1 AND p.github_created_at <= ?
+       WHERE b.counted = 1 AND p.login <> 'ghost-' || p.github_id AND p.github_created_at <= ?
        GROUP BY b.winner ORDER BY wins DESC, login ASC LIMIT 5`,
     ),
     addBattle: db.prepare('INSERT INTO battles (room_id, player_a, player_b, seed, started_at) VALUES (?, ?, ?, ?, ?)'),
@@ -109,9 +111,20 @@ export function openDb(path: string) {
     },
 
     upsertPlayer(p: { login: string; githubId: number; githubCreatedAt: number }, now: number) {
-      // a login freed by a rename we haven't seen yet may still sit on another account's row
-      q.freeLogin.run(p.login, p.githubId);
-      q.upsert.run(p.login, p.githubId, p.githubCreatedAt, now);
+      db.exec('BEGIN');
+      try {
+        // a rename we haven't seen yet leaves the old holder on this login: park it as ghost-<id>
+        const stale = q.staleHolder.get(p.login, p.githubId) as { github_id: number } | undefined;
+        if (stale) {
+          q.dropSessions.run(p.login);
+          q.ghost.run(stale.github_id);
+        }
+        q.upsert.run(p.login, p.githubId, p.githubCreatedAt, now);
+        db.exec('COMMIT');
+      } catch (e) {
+        db.exec('ROLLBACK');
+        throw e;
+      }
     },
 
     createSession(login: string, now: number): string {
