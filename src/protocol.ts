@@ -22,7 +22,15 @@ void _allInputsListed;
 
 export type Parsed<T> = { ok: true; value: T } | { ok: false; status: 400; error: string };
 
+// Wire form. `inputs` is flat [stepDelta, code, ...] pairs where code indexes INPUT_NAMES and each
+// delta counts from the previous pair's step (the first from 0). `garbage` is [stepDelta, attackId, ...].
 export type GameLog = {
+  steps: number;
+  inputs: number[];
+  garbage?: number[];
+};
+
+export type ReplayLog = {
   steps: number;
   inputs: [number, Input][];
   garbage?: [number, number][];
@@ -37,6 +45,7 @@ export type LeaderboardReply = {
 };
 export type MarathonStartReply = { gameId: string; seed: number };
 export type ScoreBody = { gameId: string; log: GameLog };
+export type ParsedScoreBody = { gameId: string; log: ReplayLog };
 export type QueueReply =
   | { status: 'waiting' }
   | { status: 'matched'; roomId: string; seed: number; opponent: { login: string } };
@@ -47,11 +56,11 @@ export type SyncReply = {
   result?: { winner: string | null };
 };
 export type LogBody = { log: GameLog };
+export type ParsedLogBody = { log: ReplayLog };
 
 const fail = (error: string): { ok: false; status: 400; error: string } => ({ ok: false, status: 400, error });
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const isInt = (v: unknown): v is number => Number.isInteger(v);
-const inputNames: readonly string[] = INPUT_NAMES;
 
 export const MAX_STEPS = 450_000;
 const MAX_INPUTS = 200_000;
@@ -66,36 +75,59 @@ export function parseSessionBody(body: unknown): Parsed<SessionBody> {
   return { ok: true, value: { githubToken: t } };
 }
 
-export function parseGameLog(log: unknown): Parsed<GameLog> {
+export function encodeLog(log: ReplayLog): GameLog {
+  const pairs = <T>(entries: [number, T][], code: (v: T) => number) => {
+    const out: number[] = [];
+    let prev = 0;
+    for (const [s, v] of entries) {
+      out.push(s - prev, code(v));
+      prev = s;
+    }
+    return out;
+  };
+  const out: GameLog = { steps: log.steps, inputs: pairs(log.inputs, (i) => INPUT_NAMES.indexOf(i)) };
+  if (log.garbage) out.garbage = pairs(log.garbage, (id) => id);
+  return out;
+}
+
+export function parseGameLog(log: unknown): Parsed<ReplayLog> {
   if (!isObject(log)) return fail('log must be an object');
   const { steps, inputs, garbage } = log;
   if (!isInt(steps) || steps < 1 || steps > MAX_STEPS) return fail('steps must be an integer from 1 to 450000');
-  if (!Array.isArray(inputs) || inputs.length > MAX_INPUTS) return fail('inputs must be an array of at most 200000 entries');
-  let prev = 0;
-  for (const e of inputs) {
-    if (!Array.isArray(e) || e.length !== 2) return fail('inputs entries must be [step, input] pairs');
-    const [s, name] = e;
-    if (!isInt(s) || s < 0 || s > steps) return fail('input steps must be integers from 0 to steps');
-    if (s < prev) return fail('input steps must not decrease');
-    if (typeof name !== 'string' || !inputNames.includes(name)) return fail('unknown input name');
-    prev = s;
+  if (!Array.isArray(inputs) || inputs.length % 2 !== 0 || inputs.length > MAX_INPUTS * 2) {
+    return fail('inputs must be an array of at most 200000 [stepDelta, code] pairs');
+  }
+  const decoded: ReplayLog = { steps, inputs: [] };
+  let at = 0;
+  for (let i = 0; i < inputs.length; i += 2) {
+    const d: unknown = inputs[i];
+    const code: unknown = inputs[i + 1];
+    if (!isInt(d) || d < 0) return fail('input step deltas must be integers of 0 or more');
+    at += d;
+    if (at > steps) return fail('input steps must be from 0 to steps');
+    if (!isInt(code) || code < 0 || code >= INPUT_NAMES.length) return fail('input codes must be integers from 0 to 9');
+    decoded.inputs.push([at, INPUT_NAMES[code]!]);
   }
   if (garbage !== undefined) {
-    if (!Array.isArray(garbage) || garbage.length > MAX_GARBAGE) return fail('garbage must be an array of at most 10000 entries');
-    prev = 0;
-    for (const e of garbage) {
-      if (!Array.isArray(e) || e.length !== 2) return fail('garbage entries must be [step, attackId] pairs');
-      const [s, id] = e;
-      if (!isInt(s) || s < 0 || s > steps) return fail('garbage steps must be integers from 0 to steps');
-      if (s < prev) return fail('garbage steps must not decrease');
+    if (!Array.isArray(garbage) || garbage.length % 2 !== 0 || garbage.length > MAX_GARBAGE * 2) {
+      return fail('garbage must be an array of at most 10000 [stepDelta, attackId] pairs');
+    }
+    decoded.garbage = [];
+    at = 0;
+    for (let i = 0; i < garbage.length; i += 2) {
+      const d: unknown = garbage[i];
+      const id: unknown = garbage[i + 1];
+      if (!isInt(d) || d < 0) return fail('garbage step deltas must be integers of 0 or more');
+      at += d;
+      if (at > steps) return fail('garbage steps must be from 0 to steps');
       if (!isInt(id) || id < 1) return fail('garbage attackId must be a positive integer');
-      prev = s;
+      decoded.garbage.push([at, id]);
     }
   }
-  return { ok: true, value: log as GameLog };
+  return { ok: true, value: decoded };
 }
 
-export function parseScoreBody(body: unknown): Parsed<ScoreBody> {
+export function parseScoreBody(body: unknown): Parsed<ParsedScoreBody> {
   if (!isObject(body)) return fail('body must be an object');
   const { gameId } = body;
   if (typeof gameId !== 'string' || !/^[A-Za-z0-9_-]{1,64}$/.test(gameId)) {
@@ -106,7 +138,7 @@ export function parseScoreBody(body: unknown): Parsed<ScoreBody> {
   return { ok: true, value: { gameId, log: log.value } };
 }
 
-export function parseLogBody(body: unknown): Parsed<LogBody> {
+export function parseLogBody(body: unknown): Parsed<ParsedLogBody> {
   if (!isObject(body)) return fail('body must be an object');
   const log = parseGameLog(body.log);
   if (!log.ok) return log;

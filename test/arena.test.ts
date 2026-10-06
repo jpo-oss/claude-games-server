@@ -12,7 +12,8 @@ import type { ArenaTiming } from '../src/arena.ts';
 import { createReplayer } from '../src/replay.ts';
 import type { ReplayJob, ReplayResult } from '../src/replay.ts';
 import { newGame, step } from '../src/engine.ts';
-import type { GameLog, QueueReply, SyncReply } from '../src/protocol.ts';
+import { encodeLog } from '../src/protocol.ts';
+import type { ReplayLog, QueueReply, SyncReply } from '../src/protocol.ts';
 import { start } from '../src/main.ts';
 
 type Replayer = { run(job: ReplayJob): Promise<ReplayResult>; close(): Promise<void> };
@@ -76,8 +77,8 @@ async function boot(opts: { maxPlayers?: number; maxHeld?: number; replayer?: Re
     assert.equal(r.status, 200);
     return (await r.json()) as SyncReply;
   };
-  const sendLog = (room: string, token: string, log: GameLog) =>
-    call(`/v1/battle/${room}/log`, { method: 'POST', body: JSON.stringify({ log }) }, token);
+  const sendLog = (room: string, token: string, log: ReplayLog) =>
+    call(`/v1/battle/${room}/log`, { method: 'POST', body: JSON.stringify({ log: encodeLog(log) }) }, token);
 
   const alice = await signIn('alice', 1);
   const bob = await signIn('bob', 2);
@@ -114,9 +115,9 @@ async function boot(opts: { maxPlayers?: number; maxHeld?: number; replayer?: Re
 }
 
 // hard drops every step until the stack tops out
-function topOutLog(seed: number): GameLog {
+function topOutLog(seed: number): ReplayLog {
   let game = newGame('battle', seed);
-  const log: GameLog = { steps: 0, inputs: [] };
+  const log: ReplayLog = { steps: 0, inputs: [] };
   for (let i = 0; i < 5_000; i++) {
     log.inputs.push([i, 'hardDrop']);
     game = step(game, ['hardDrop'], 16).game;
@@ -128,7 +129,7 @@ function topOutLog(seed: number): GameLog {
 // bob sends alice a 3-line attack a second in, then tops out after `lastsMs`
 async function battle(
   s: Awaited<ReturnType<typeof boot>>,
-  opts: { collectAfterMs?: number; lastsMs?: number; aliceAttacks?: number[]; bobFinalAttacks?: number[]; winnerLog?: GameLog | null; loserLog?: GameLog } = {},
+  opts: { collectAfterMs?: number; lastsMs?: number; aliceAttacks?: number[]; bobFinalAttacks?: number[]; winnerLog?: ReplayLog | null; loserLog?: ReplayLog } = {},
 ) {
   const lastsMs = opts.lastsMs ?? 61_000;
   const m = await s.pair(s.alice, s.bob, opts.collectAfterMs ?? 0);
@@ -151,14 +152,14 @@ async function battle(
 }
 
 // no inputs, each attack applied at the step it arrived; lasts as long as the match
-function honest(ms: number, garbage: [number, number][]): GameLog {
+function honest(ms: number, garbage: [number, number][]): ReplayLog {
   return { steps: Math.round(ms / 16), inputs: [], garbage: garbage.map(([at, id]) => [Math.round(at / 16), id]) };
 }
 
 // no inputs until `idle`, then hard drops every step until the stack tops out
-function idleThenTopOut(seed: number, idle: number): { log: GameLog; topOutStep: number } {
+function idleThenTopOut(seed: number, idle: number): { log: ReplayLog; topOutStep: number } {
   let game = newGame('battle', seed);
-  const log: GameLog = { steps: 0, inputs: [] };
+  const log: ReplayLog = { steps: 0, inputs: [] };
   for (let i = 0; i < idle + 5_000; i++) {
     const inputs = i >= idle ? (['hardDrop'] as const) : [];
     for (const inp of inputs) log.inputs.push([i, inp]);

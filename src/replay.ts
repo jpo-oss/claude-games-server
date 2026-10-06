@@ -1,14 +1,14 @@
 import { Worker } from 'node:worker_threads';
 import { newGame, receiveGarbage, step } from './engine.ts';
 import type { Input, Mode } from './engine.ts';
-import type { GameLog } from './protocol.ts';
+import type { ReplayLog } from './protocol.ts';
 
 export const STEP_MS = 16;
 
 export type ReplayJob = {
   seed: number;
   mode: Mode;
-  log: GameLog;
+  log: ReplayLog;
   garbage?: Map<number, number>;
 };
 

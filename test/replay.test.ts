@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { newGame, step, receiveGarbage } from '../src/engine.ts';
 import type { Game, Input, Mode } from '../src/engine.ts';
-import type { GameLog } from '../src/protocol.ts';
+import type { ReplayLog } from '../src/protocol.ts';
 import { MAX_STEPS } from '../src/protocol.ts';
 import { createReplayer, replay, STEP_MS } from '../src/replay.ts';
 
@@ -12,7 +12,7 @@ const POOL: Input[] = [
 ];
 
 type Run = {
-  log: GameLog;
+  log: ReplayLog;
   garbage: Map<number, number>;
   score: number;
   lines: number;
@@ -62,7 +62,7 @@ function play(mode: Mode, seed: number, steps: number, garbageAt: [number, numbe
   let rnd = seed >>> 0;
   const next = () => (rnd = (Math.imul(rnd, 1664525) + 1013904223) >>> 0) / 2 ** 32;
   const garbage = new Map(garbageAt.map(([, lines], i) => [i + 1, lines]));
-  const log: GameLog = { steps, inputs: [] };
+  const log: ReplayLog = { steps, inputs: [] };
   if (garbageAt.length) log.garbage = garbageAt.map(([s], i) => [s, i + 1]);
   let game = newGame(mode, seed);
   let topOutStep: number | null = null;
@@ -131,12 +131,12 @@ test('battle garbage replays identically and a missing id fails', () => {
 test('input after top-out is rejected', () => {
   const run = play('marathon', 3, 20000);
   assert.ok(run.topOutStep !== null, 'run should top out');
-  const log: GameLog = { steps: run.log.steps, inputs: [...run.log.inputs, [run.topOutStep! + 5, 'left']] };
+  const log: ReplayLog = { steps: run.log.steps, inputs: [...run.log.inputs, [run.topOutStep! + 5, 'left']] };
   assert.deepEqual(replay({ seed: 3, mode: 'marathon', log }), { ok: false, error: 'input after game over' });
 });
 
 test('10,000 steps replay in under a second', () => {
-  const log: GameLog = { steps: 10000, inputs: [] };
+  const log: ReplayLog = { steps: 10000, inputs: [] };
   for (let i = 0; i < 10000; i += 7) log.inputs.push([i, i % 3 === 0 ? 'left' : 'rotateCW']);
   const t = performance.now();
   const r = ok(replay({ seed: 5, mode: 'marathon', log }));
@@ -174,7 +174,7 @@ test('maxConcurrent 1 runs jobs in order', async () => {
 });
 
 test('timeout resolves with a timeout error and frees the worker', async () => {
-  const log: GameLog = { steps: MAX_STEPS, inputs: [] };
+  const log: ReplayLog = { steps: MAX_STEPS, inputs: [] };
   const rp = createReplayer({ timeoutMs: 5 });
   try {
     assert.deepEqual(await rp.run({ seed: 1, mode: 'marathon', log }), { ok: false, error: 'timeout' });
@@ -187,7 +187,7 @@ test('timeout resolves with a timeout error and frees the worker', async () => {
 test('garbage after top-out is rejected', () => {
   const run = play('battle', 11, 3000, [[100, 2]]);
   assert.ok(run.topOutStep !== null);
-  const log: GameLog = { ...run.log, garbage: [...run.log.garbage!, [run.topOutStep! + 3, 2]] };
+  const log: ReplayLog = { ...run.log, garbage: [...run.log.garbage!, [run.topOutStep! + 3, 2]] };
   assert.deepEqual(replay({ seed: 11, mode: 'battle', log, garbage: new Map([[1, 2], [2, 2]]) }), {
     ok: false,
     error: 'input after game over',
@@ -195,7 +195,7 @@ test('garbage after top-out is rejected', () => {
 });
 
 test('a full queue answers busy', async () => {
-  const log: GameLog = { steps: MAX_STEPS, inputs: [] };
+  const log: ReplayLog = { steps: MAX_STEPS, inputs: [] };
   const rp = createReplayer({ maxConcurrent: 1, maxQueue: 1 });
   try {
     const a = rp.run({ seed: 1, mode: 'marathon', log });
@@ -211,7 +211,7 @@ test('a full queue answers busy', async () => {
 
 test('a job that cannot be posted resolves replay failed and the pool keeps working', async () => {
   const good = { seed: 1, mode: 'marathon' as const, log: play('marathon', 1, 300).log };
-  const bad = { seed: 1, mode: 'marathon' as const, log: { steps: 5, inputs: [], fn() {} } as unknown as GameLog };
+  const bad = { seed: 1, mode: 'marathon' as const, log: { steps: 5, inputs: [], fn() {} } as unknown as ReplayLog };
   const rp = createReplayer({ maxConcurrent: 1 });
   try {
     assert.deepEqual(await rp.run(bad), { ok: false, error: 'replay failed' });
@@ -222,7 +222,7 @@ test('a job that cannot be posted resolves replay failed and the pool keeps work
 });
 
 test('queued jobs resolve closed after close()', async () => {
-  const log: GameLog = { steps: MAX_STEPS, inputs: [] };
+  const log: ReplayLog = { steps: MAX_STEPS, inputs: [] };
   const rp = createReplayer({ maxConcurrent: 1 });
   const first = rp.run({ seed: 1, mode: 'marathon', log });
   const second = rp.run({ seed: 2, mode: 'marathon', log });

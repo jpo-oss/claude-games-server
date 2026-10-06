@@ -2,7 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { newGame, step } from '../src/engine.ts';
 import type { Game } from '../src/engine.ts';
-import type { GameLog } from '../src/protocol.ts';
+import { encodeLog } from '../src/protocol.ts';
+import type { ReplayLog } from '../src/protocol.ts';
 import { createReplayer } from '../src/replay.ts';
 import type { ReplayResult } from '../src/replay.ts';
 import { start } from '../src/main.ts';
@@ -27,15 +28,15 @@ async function boot(replayer: Pick<ReturnType<typeof createReplayer>, 'run' | 'c
   };
   const session = await signIn('alice', 7);
   const begin = async (token = session) => (await (await call('/v1/marathon', { method: 'POST' }, token)).json()) as { gameId: string; seed: number };
-  const submit = (gameId: string, log: GameLog, token = session) =>
-    call('/v1/scores', { method: 'POST', body: JSON.stringify({ gameId, log }) }, token);
+  const submit = (gameId: string, log: ReplayLog, token = session) =>
+    call('/v1/scores', { method: 'POST', body: JSON.stringify({ gameId, log: encodeLog(log) }) }, token);
   return { ...s, call, session, signIn, begin, submit };
 }
 
 // hard drops every step until the stack tops out or `steps` is reached
-function play(seed: number, steps: number): { log: GameLog; game: Game; topOut: number | null } {
+function play(seed: number, steps: number): { log: ReplayLog; game: Game; topOut: number | null } {
   let game = newGame('marathon', seed);
-  const log: GameLog = { steps, inputs: [] };
+  const log: ReplayLog = { steps, inputs: [] };
   for (let i = 0; i < steps; i++) {
     log.inputs.push([i, 'hardDrop']);
     game = step(game, ['hardDrop'], 16).game;
@@ -128,7 +129,7 @@ test('input after game over is 422', async () => {
     const { gameId, seed } = await s.begin();
     const { log, topOut } = play(seed, 400);
     assert.ok(topOut !== null);
-    const bad: GameLog = { steps: topOut + 5, inputs: [...log.inputs, [topOut + 2, 'left']] };
+    const bad: ReplayLog = { steps: topOut + 5, inputs: [...log.inputs, [topOut + 2, 'left']] };
     const r = await s.submit(gameId, bad);
     assert.equal(r.status, 422);
     assert.deepEqual(await r.json(), { error: 'input after game over' });
@@ -156,6 +157,20 @@ test('the sixth open game is 429', async () => {
     const r = await s.call('/v1/marathon', { method: 'POST' }, s.session);
     assert.equal(r.status, 429);
     assert.deepEqual(await r.json(), { error: 'too many open games' });
+  } finally {
+    await s.close();
+  }
+});
+
+test('a 200000-pair log fits under the body cap', async () => {
+  const s = await boot();
+  try {
+    const { gameId } = await s.begin();
+    const log: ReplayLog = { steps: 450_000, inputs: [] };
+    for (let i = 1; i <= 200_000; i++) log.inputs.push([i * 2, 'hold']);
+    const r = await s.submit(gameId, log);
+    assert.equal(r.status, 422);
+    assert.deepEqual(await r.json(), { error: 'faster than real time' });
   } finally {
     await s.close();
   }

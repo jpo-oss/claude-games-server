@@ -5,7 +5,7 @@ import { STEP_MS } from './replay.ts';
 import type { ReplayJob, ReplayResult } from './replay.ts';
 import { collect, emptyQueue, joinQueue, leaveQueue, liveQueue, newRoom, syncRoom } from './battle.ts';
 import type { RoomReply, RoomState } from './battle.ts';
-import type { GameLog, SyncBody, SyncReply } from './protocol.ts';
+import type { ReplayLog, SyncBody, SyncReply } from './protocol.ts';
 
 export type ArenaTiming = { holdMs?: number; winnerLogMs?: number; retryMs?: number; sweepMs?: number };
 
@@ -29,7 +29,7 @@ type Live = {
   joinedAt: Map<string, number>;
   seen: Map<string, string>;
   held: Map<string, Held>;
-  logs: Map<string, GameLog>;
+  logs: Map<string, ReplayLog>;
   logTimer?: NodeJS.Timeout;
   verifying: boolean;
   finished: boolean;
@@ -276,7 +276,7 @@ export function createArena(deps: {
       });
     },
 
-    log(roomId: string, login: string, log: GameLog): Reply {
+    log(roomId: string, login: string, log: ReplayLog): Reply {
       const live = rooms.get(roomId);
       if (!live) return { status: 404, body: { error: 'no such room' } };
       if (!live.state.players.some((p) => p.login === login)) return { status: 403, body: { error: 'not in this room' } };

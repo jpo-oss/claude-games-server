@@ -8,12 +8,14 @@ import {
   type SessionReply,
   type SyncReply,
   PROTOCOL_VERSION,
+  encodeLog,
   parseGameLog,
   parseLogBody,
   parseScoreBody,
   parseSessionBody,
   parseSyncBody,
 } from '../src/protocol.ts';
+import type { Input } from '../src/engine.ts';
 
 function bad(r: { ok: boolean }, error?: string) {
   assert.equal(r.ok, false);
@@ -45,12 +47,39 @@ test('parseSessionBody rejections', () => {
   bad(parseSessionBody({ githubToken: 'tab\t' }), 'githubToken must be 1 to 255 visible characters');
 });
 
-const log = { steps: 100, inputs: [[0, 'left'], [10, 'hardDrop']] };
+const log = { steps: 100, inputs: [0, 0, 10, 5] };
+
+test('parseGameLog decodes step deltas and input codes', () => {
+  assert.deepEqual(parseGameLog({ steps: 20, inputs: [0, 0, 10, 5, 0, 9], garbage: [3, 1, 4, 2] }), {
+    ok: true,
+    value: { steps: 20, inputs: [[0, 'left'], [10, 'hardDrop'], [10, 'hold']], garbage: [[3, 1], [7, 2]] },
+  });
+  assert.deepEqual(parseGameLog({ steps: 1, inputs: [] }), { ok: true, value: { steps: 1, inputs: [] } });
+});
 
 test('parseGameLog accepts valid logs', () => {
   assert.equal(parseGameLog(log).ok, true);
   assert.equal(parseGameLog({ steps: 450_000, inputs: [] }).ok, true);
-  assert.equal(parseGameLog({ steps: 5, inputs: [[5, 'hold']], garbage: [[0, 1], [5, 2]] }).ok, true);
+  assert.equal(parseGameLog({ steps: 5, inputs: [5, 9], garbage: [0, 1, 5, 2] }).ok, true);
+});
+
+test('a 200000-pair log within the body cap parses', () => {
+  const inputs: number[] = [];
+  for (let i = 0; i < 200_000; i++) inputs.push(2, 9);
+  const wire = { steps: 450_000, inputs };
+  assert.ok(Buffer.byteLength(JSON.stringify({ gameId: 'a'.repeat(64), log: wire })) <= 1_572_864);
+  const r = parseGameLog(wire);
+  assert.equal(r.ok, true);
+  const v = (r as { ok: true; value: { inputs: [number, string][] } }).value;
+  assert.equal(v.inputs.length, 200_000);
+  assert.deepEqual(v.inputs.at(-1), [400_000, 'hold']);
+});
+
+test('encodeLog writes the compact form parseGameLog reads', () => {
+  const decoded = { steps: 20, inputs: [[0, 'left'], [10, 'hardDrop'], [10, 'hold']] as [number, Input][], garbage: [[3, 1], [7, 2]] as [number, number][] };
+  assert.deepEqual(encodeLog(decoded), { steps: 20, inputs: [0, 0, 10, 5, 0, 9], garbage: [3, 1, 4, 2] });
+  assert.deepEqual(encodeLog({ steps: 3, inputs: [] }), { steps: 3, inputs: [] });
+  assert.deepEqual(parseGameLog(encodeLog(decoded)), { ok: true, value: decoded });
 });
 
 test('parseGameLog rejections', () => {
@@ -59,23 +88,24 @@ test('parseGameLog rejections', () => {
   bad(parseGameLog({ steps: 0, inputs: [] }), 'steps must be an integer from 1 to 450000');
   bad(parseGameLog({ steps: 1.5, inputs: [] }), 'steps must be an integer from 1 to 450000');
   bad(parseGameLog({ steps: 450_001, inputs: [] }), 'steps must be an integer from 1 to 450000');
-  bad(parseGameLog({ steps: 10 }), 'inputs must be an array of at most 200000 entries');
-  bad(parseGameLog({ steps: 10, inputs: new Array(200_001).fill([0, 'left']) }), 'inputs must be an array of at most 200000 entries');
-  bad(parseGameLog({ steps: 10, inputs: [5] }), 'inputs entries must be [step, input] pairs');
-  bad(parseGameLog({ steps: 10, inputs: [[0, 'left', 1]] }), 'inputs entries must be [step, input] pairs');
-  bad(parseGameLog({ steps: 10, inputs: [[-1, 'left']] }), 'input steps must be integers from 0 to steps');
-  bad(parseGameLog({ steps: 10, inputs: [[11, 'left']] }), 'input steps must be integers from 0 to steps');
-  bad(parseGameLog({ steps: 10, inputs: [[1.5, 'left']] }), 'input steps must be integers from 0 to steps');
-  bad(parseGameLog({ steps: 10, inputs: [[3, 'left'], [2, 'right']] }), 'input steps must not decrease');
-  bad(parseGameLog({ steps: 10, inputs: [[0, 'jump']] }), 'unknown input name');
-  bad(parseGameLog({ steps: 10, inputs: [[0, 7]] }), 'unknown input name');
-  bad(parseGameLog({ steps: 10, inputs: [], garbage: 'x' }), 'garbage must be an array of at most 10000 entries');
-  bad(parseGameLog({ steps: 10, inputs: [], garbage: new Array(10_001).fill([0, 1]) }), 'garbage must be an array of at most 10000 entries');
-  bad(parseGameLog({ steps: 10, inputs: [], garbage: [1] }), 'garbage entries must be [step, attackId] pairs');
-  bad(parseGameLog({ steps: 10, inputs: [], garbage: [[11, 1]] }), 'garbage steps must be integers from 0 to steps');
-  bad(parseGameLog({ steps: 10, inputs: [], garbage: [[3, 1], [2, 2]] }), 'garbage steps must not decrease');
-  bad(parseGameLog({ steps: 10, inputs: [], garbage: [[0, 0]] }), 'garbage attackId must be a positive integer');
-  bad(parseGameLog({ steps: 10, inputs: [], garbage: [[0, 1.5]] }), 'garbage attackId must be a positive integer');
+  bad(parseGameLog({ steps: 10 }), 'inputs must be an array of at most 200000 [stepDelta, code] pairs');
+  bad(parseGameLog({ steps: 10, inputs: new Array(400_002).fill(0) }), 'inputs must be an array of at most 200000 [stepDelta, code] pairs');
+  bad(parseGameLog({ steps: 10, inputs: [5] }), 'inputs must be an array of at most 200000 [stepDelta, code] pairs');
+  bad(parseGameLog({ steps: 10, inputs: [[0], 0] }), 'input step deltas must be integers of 0 or more');
+  bad(parseGameLog({ steps: 10, inputs: [-1, 0] }), 'input step deltas must be integers of 0 or more');
+  bad(parseGameLog({ steps: 10, inputs: [1.5, 0] }), 'input step deltas must be integers of 0 or more');
+  bad(parseGameLog({ steps: 10, inputs: [11, 0] }), 'input steps must be from 0 to steps');
+  bad(parseGameLog({ steps: 10, inputs: [6, 0, 5, 1] }), 'input steps must be from 0 to steps');
+  bad(parseGameLog({ steps: 10, inputs: [0, 10] }), 'input codes must be integers from 0 to 9');
+  bad(parseGameLog({ steps: 10, inputs: [0, -1] }), 'input codes must be integers from 0 to 9');
+  bad(parseGameLog({ steps: 10, inputs: [0, 'left'] }), 'input codes must be integers from 0 to 9');
+  bad(parseGameLog({ steps: 10, inputs: [], garbage: 'x' }), 'garbage must be an array of at most 10000 [stepDelta, attackId] pairs');
+  bad(parseGameLog({ steps: 10, inputs: [], garbage: new Array(20_002).fill(1) }), 'garbage must be an array of at most 10000 [stepDelta, attackId] pairs');
+  bad(parseGameLog({ steps: 10, inputs: [], garbage: [1] }), 'garbage must be an array of at most 10000 [stepDelta, attackId] pairs');
+  bad(parseGameLog({ steps: 10, inputs: [], garbage: [-1, 1] }), 'garbage step deltas must be integers of 0 or more');
+  bad(parseGameLog({ steps: 10, inputs: [], garbage: [11, 1] }), 'garbage steps must be from 0 to steps');
+  bad(parseGameLog({ steps: 10, inputs: [], garbage: [0, 0] }), 'garbage attackId must be a positive integer');
+  bad(parseGameLog({ steps: 10, inputs: [], garbage: [0, 1.5] }), 'garbage attackId must be a positive integer');
 });
 
 test('parseScoreBody accepts and rejects', () => {

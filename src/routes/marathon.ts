@@ -3,7 +3,7 @@ import type { Db } from '../db.ts';
 import type { Route } from '../http.ts';
 import type { ReplayResult } from '../replay.ts';
 import { parseScoreBody } from '../protocol.ts';
-import type { GameLog, MarathonStartReply } from '../protocol.ts';
+import type { ReplayLog, MarathonStartReply } from '../protocol.ts';
 
 const STEP_MS = 16;
 const SLACK_MS = 5_000;
@@ -13,7 +13,7 @@ const RETRYABLE = new Set(['busy', 'timeout', 'closed', 'replay failed']);
 
 type Deps = {
   db: Db;
-  replayer: { run(job: { seed: number; mode: 'marathon'; log: GameLog }): Promise<ReplayResult> };
+  replayer: { run(job: { seed: number; mode: 'marathon'; log: ReplayLog }): Promise<ReplayResult> };
   random?: () => number;
 };
 
@@ -44,7 +44,7 @@ export function marathonRoutes(deps: Deps): Route[] {
       method: 'POST',
       path: '/v1/scores',
       auth: true,
-      bodyLimit: 262_144,
+      bodyLimit: 1_572_864,
       handler: async (ctx) => {
         const parsed = parseScoreBody(ctx.body);
         if (!parsed.ok) return { status: parsed.status, body: { error: parsed.error } };

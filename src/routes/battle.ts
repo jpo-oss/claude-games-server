@@ -30,7 +30,7 @@ export function battleRoutes(arena: Arena): Route[] {
       method: 'POST',
       path: '/v1/battle/:room/log',
       auth: true,
-      bodyLimit: 262_144,
+      bodyLimit: 1_572_864,
       handler: async (ctx) => {
         const parsed = parseLogBody(ctx.body);
         if (!parsed.ok) return { status: parsed.status, body: { error: parsed.error } };
