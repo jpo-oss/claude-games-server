@@ -32,7 +32,7 @@ export type ConfigReply = { githubClientId: string; protocol: 2 };
 export type SessionBody = { githubToken: string };
 export type SessionReply = { session: string; login: string };
 export type LeaderboardReply = {
-  marathon: { login: string; score: number; lines: number; level: number }[];
+  marathon: { login: string; score: number; lines: number; level: number; at: number }[];
   wins: { login: string; wins: number }[];
 };
 export type MarathonStartReply = { gameId: string; seed: number };
@@ -42,8 +42,8 @@ export type QueueReply =
   | { status: 'matched'; roomId: string; seed: number; opponent: { login: string } };
 export type SyncBody = { seq: number; attacks: number[]; snapshot: string; isOver: boolean };
 export type SyncReply = {
-  opponent: { snapshot: string; isOver: boolean };
-  incoming: number[];
+  opponent: { login: string; snapshot: string; isOver: boolean } | null;
+  incoming: { id: number; lines: number }[];
   result?: { winner: string | null };
 };
 export type LogBody = { log: GameLog };

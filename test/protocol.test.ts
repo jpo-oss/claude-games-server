@@ -2,6 +2,11 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   INPUT_NAMES,
+  type ConfigReply,
+  type LeaderboardReply,
+  type QueueReply,
+  type SessionReply,
+  type SyncReply,
   PROTOCOL_VERSION,
   parseGameLog,
   parseLogBody,
@@ -111,4 +116,44 @@ test('parseSyncBody rejections', () => {
   bad(parseSyncBody({ ...sync, snapshot: '.'.repeat(401) }), 'snapshot must be up to 400 board characters');
   bad(parseSyncBody({ ...sync, snapshot: 'X' }), 'snapshot must be up to 400 board characters');
   bad(parseSyncBody({ ...sync, isOver: 'no' }), 'isOver must be a boolean');
+});
+
+const keys = (v: object) => Object.keys(v).sort();
+
+test('LeaderboardReply rows carry the fields the client reads', () => {
+  const reply: LeaderboardReply = {
+    marathon: [{ login: 'a', score: 1, lines: 2, level: 3, at: 1700000000000 }],
+    wins: [{ login: 'a', wins: 1 }],
+  };
+  const json = JSON.parse(JSON.stringify(reply));
+  assert.deepEqual(keys(json), ['marathon', 'wins']);
+  assert.deepEqual(keys(json.marathon[0]), ['at', 'level', 'lines', 'login', 'score']);
+  assert.deepEqual(keys(json.wins[0]), ['login', 'wins']);
+});
+
+test('SyncReply carries opponent login and incoming ids', () => {
+  const reply: SyncReply = {
+    opponent: { login: 'b', snapshot: '..I', isOver: false },
+    incoming: [{ id: 1, lines: 4 }],
+    result: { winner: 'b' },
+  };
+  const json = JSON.parse(JSON.stringify(reply));
+  assert.deepEqual(keys(json), ['incoming', 'opponent', 'result']);
+  assert.deepEqual(keys(json.opponent), ['isOver', 'login', 'snapshot']);
+  assert.deepEqual(keys(json.incoming[0]), ['id', 'lines']);
+  assert.deepEqual(keys(json.result), ['winner']);
+  const none: SyncReply = { opponent: null, incoming: [] };
+  assert.equal(JSON.parse(JSON.stringify(none)).opponent, null);
+});
+
+test('QueueReply, ConfigReply and SessionReply shapes', () => {
+  const waiting: QueueReply = { status: 'waiting' };
+  const matched: QueueReply = { status: 'matched', roomId: 'r1', seed: 5, opponent: { login: 'b' } };
+  assert.deepEqual(keys(waiting), ['status']);
+  assert.deepEqual(keys(matched), ['opponent', 'roomId', 'seed', 'status']);
+  assert.deepEqual(keys((matched as { opponent: object }).opponent), ['login']);
+  const config: ConfigReply = { githubClientId: 'x', protocol: 2 };
+  assert.deepEqual(keys(config), ['githubClientId', 'protocol']);
+  const session: SessionReply = { session: 's', login: 'a' };
+  assert.deepEqual(keys(session), ['login', 'session']);
 });
