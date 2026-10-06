@@ -11,6 +11,7 @@ const routes: Route[] = [
   { method: 'GET', path: '/health', auth: false, handler: async () => ({ status: 200, body: { ok: true } }) },
   { method: 'POST', path: '/echo', auth: false, handler: async (c) => ({ status: 200, body: { got: c.body } }) },
   { method: 'POST', path: '/big', auth: false, bodyLimit: 10_000, handler: async () => ({ status: 204 }) },
+  { method: 'POST', path: '/upload', auth: true, bodyLimit: 2_000_000, handler: async () => ({ status: 204 }) },
   { method: 'GET', path: '/me', auth: true, handler: async (c) => ({ status: 200, body: { login: c.login, ip: c.ip } }) },
   { method: 'GET', path: '/room/:room/x', auth: false, handler: async (c) => ({ status: 200, body: c.params }) },
   { method: 'GET', path: '/boom', auth: false, handler: async () => { throw new Error('secret detail'); } },
@@ -139,6 +140,34 @@ test('500 hides the error', async () => {
     const text = await r.text();
     assert.deepEqual(JSON.parse(text), { error: 'server error' });
     assert.equal(text.includes('secret'), false);
+  } finally { s.close(); }
+});
+
+test('500 is logged with the error name only', async () => {
+  const lines: string[] = [];
+  const s = await serve({ log: (l) => lines.push(l) });
+  try {
+    assert.equal((await s.call('/boom')).status, 500);
+    await new Promise((r) => setTimeout(r, 20));
+    assert.ok(lines.includes('GET /boom 500 - error=Error'), lines.join('\n'));
+    assert.equal(lines.join('\n').includes('secret'), false);
+  } finally { s.close(); }
+});
+
+test('an auth route answers 401 before reading the body', async () => {
+  const s = await serve();
+  try {
+    const port = new URL(s.base).port;
+    const reply = await new Promise<string>((resolve) => {
+      const sock = connect(Number(port), '127.0.0.1', () =>
+        sock.write('POST /upload HTTP/1.1\r\nHost: x\r\nX-Protocol-Version: 2\r\nContent-Length: 1048576\r\n\r\n' + 'x'.repeat(1000)));
+      const timer = setTimeout(() => { sock.destroy(); resolve('timeout'); }, 2_000);
+      let data = '';
+      sock.on('data', (d) => (data += d));
+      sock.on('close', () => { clearTimeout(timer); resolve(data); });
+    });
+    assert.match(reply.split('\r\n')[0]!, /^HTTP\/1\.1 401/);
+    assert.ok(reply.includes('{"error":"sign in first"}'));
   } finally { s.close(); }
 });
 

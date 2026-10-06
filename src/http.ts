@@ -88,7 +88,13 @@ export function createHandler(deps: {
       res.end(JSON.stringify(body), closeAfter ? () => req.destroy() : undefined);
     };
 
-    run().catch(() => send(500, { error: 'server error' }));
+    // A reply sent before the body is read closes the connection so the unread body is never drained.
+    const early = (status: number, body: unknown) => send(status, body, !req.complete);
+
+    run().catch((err: unknown) => {
+      log(`${method} ${pattern} 500 ${login ?? '-'} error=${err instanceof Error ? err.name : 'unknown'}`);
+      send(500, { error: 'server error' });
+    });
 
     async function run() {
       let route: Route | undefined;
@@ -104,20 +110,28 @@ export function createHandler(deps: {
           break;
         }
       }
-      if (!route) return send(pathMatched ? 405 : 404, { error: pathMatched ? 'method not allowed' : 'not found' });
+      if (!route) return early(pathMatched ? 405 : 404, { error: pathMatched ? 'method not allowed' : 'not found' });
       pattern = route.path;
 
       if (!NO_PROTOCOL.has(path) && req.headers['x-protocol-version'] !== String(PROTOCOL_VERSION)) {
-        return send(426, { error: `protocol ${PROTOCOL_VERSION} required` });
+        return early(426, { error: `protocol ${PROTOCOL_VERSION} required` });
       }
 
       const fwd = req.headers['x-forwarded-for'];
       const forwarded = typeof fwd === 'string' ? (fwd.split(',').pop() ?? '').trim() : '';
       const ip = (deps.trustProxy && isIP(forwarded) ? forwarded : req.socket.remoteAddress) || 'unknown';
       const now = clock();
-      if (!perIp.take(ip, now)) return send(429, { error: 'slow down' });
+      if (!perIp.take(ip, now)) return early(429, { error: 'slow down' });
       const rb = routeBuckets.get(route);
-      if (rb && !rb.take(ip, now)) return send(429, { error: 'slow down' });
+      if (rb && !rb.take(ip, now)) return early(429, { error: 'slow down' });
+
+      if (route.auth) {
+        const m = /^Bearer (\S+)$/.exec(req.headers.authorization ?? '');
+        login = m ? deps.findSession(m[1], now) : null;
+        if (!login) return early(401, { error: 'sign in first' });
+        sessionKey = m![1];
+        if (!perSession.take(login, now)) return early(429, { error: 'slow down' });
+      }
 
       const cap = route.bodyLimit ?? DEFAULT_BODY_LIMIT;
       const declared = Number(req.headers['content-length']);
@@ -144,14 +158,6 @@ export function createHandler(deps: {
         } catch {
           return send(400, { error: 'bad json' });
         }
-      }
-
-      if (route.auth) {
-        const m = /^Bearer (\S+)$/.exec(req.headers.authorization ?? '');
-        login = m ? deps.findSession(m[1], now) : null;
-        if (!login) return send(401, { error: 'sign in first' });
-        sessionKey = m![1];
-        if (!perSession.take(login, now)) return send(429, { error: 'slow down' });
       }
 
       const reply = await route.handler({ method, path, params, body, login, sessionKey, ip, now, signal: ac.signal });
