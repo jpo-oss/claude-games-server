@@ -9,7 +9,7 @@ import { start } from '../src/main.ts';
 
 const cfg = { port: 0, databasePath: ':memory:', githubClientId: 'cid', githubClientSecret: 'csecret', maxHeld: 10, maxPlayers: 10, maxConnections: 50, trustProxy: false };
 
-async function boot(replayer: NonNullable<Parameters<typeof start>[1]['replayer']> = createReplayer({ maxConcurrent: 2, timeoutMs: 10_000, maxQueue: 32 })) {
+async function boot(replayer: Pick<ReturnType<typeof createReplayer>, 'run' | 'close'> = createReplayer({ maxConcurrent: 2, timeoutMs: 10_000, maxQueue: 32 })) {
   let who = { login: 'alice', id: 7 };
   const gh = (async (url: string | URL | Request) =>
     String(url).includes('/applications/')
