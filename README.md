@@ -71,7 +71,7 @@ See the [Caddy reverse_proxy docs](https://caddyserver.com/docs/caddyfile/direct
 
 Stored: GitHub login and numeric ID, the date the account was created, hashed session keys, scores and battle results. Your GitHub token is checked once at sign-in and not kept.
 
-Logged: method, route, status, login and duration for each request. Tokens, request bodies and IP addresses are never logged.
+Logged: method, route, status, login and duration for each request, plus the error type (never its message) when the server fails one. Tokens, request bodies and IP addresses are never logged.
 
 ## Limits and tuning
 
