@@ -8,7 +8,7 @@ const cfg = { port: 0, databasePath: ':memory:', githubClientId: 'cid', githubCl
 
 type Seen = { url: string; init: RequestInit };
 
-function fakeGithub(opts: { check?: number | 'throw'; login?: string; id?: number } = {}) {
+function fakeGithub(opts: { check?: number | 'throw'; user?: number; login?: string; id?: number } = {}) {
   const seen: Seen[] = [];
   const fetch = (async (url: string | URL | Request, init: RequestInit = {}) => {
     const u = String(url);
@@ -17,6 +17,7 @@ function fakeGithub(opts: { check?: number | 'throw'; login?: string; id?: numbe
       if (opts.check === 'throw') throw new Error('network down');
       return new Response('{}', { status: opts.check ?? 200 });
     }
+    if (opts.user) return new Response('{}', { status: opts.user });
     return Response.json({ login: opts.login ?? 'alice', id: opts.id ?? 7, created_at: '2015-01-02T03:04:05Z' });
   }) as typeof globalThis.fetch;
   return { fetch, seen };
@@ -75,6 +76,19 @@ test('github failure is 502', async () => {
       const r = await s.signIn();
       assert.equal(r.status, 502);
       assert.deepEqual(await r.json(), { error: 'github unavailable' });
+    } finally {
+      await s.close();
+    }
+  }
+});
+
+test('a 403 from GitHub user lookup is 502, a 401 is a rejected sign-in', async () => {
+  for (const [user, status, error] of [[403, 502, 'github unavailable'], [401, 401, 'sign-in rejected']] as const) {
+    const s = await boot(fakeGithub({ user }));
+    try {
+      const r = await s.signIn();
+      assert.equal(r.status, status);
+      assert.deepEqual(await r.json(), { error });
     } finally {
       await s.close();
     }

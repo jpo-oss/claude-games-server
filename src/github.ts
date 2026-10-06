@@ -30,7 +30,7 @@ export function createGithub(deps: {
         headers: { ...common, authorization: `Bearer ${token}` },
         signal: AbortSignal.timeout(timeout),
       });
-      if (res.status === 401 || res.status === 403) {
+      if (res.status === 401) {
         await res.body?.cancel();
         return null;
       }
