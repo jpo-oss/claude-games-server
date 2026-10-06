@@ -451,6 +451,40 @@ test('a forfeit win with attacks still in the inbox counts', async () => {
   }
 });
 
+test('a forfeit win counts even when the loser posts a log that never tops out', async () => {
+  const s = await boot({ maxHeld: 0 });
+  try {
+    const m = await s.pair();
+    await s.syncJson(m.roomId, s.bob, { seq: 0 });
+    await s.syncJson(m.roomId, s.alice, { seq: 0 });
+    s.clock.t += 61_000;
+    assert.deepEqual((await s.syncJson(m.roomId, s.alice, { seq: 1 })).result, { winner: 'alice' });
+    assert.equal((await s.sendLog(m.roomId, s.bob, { steps: 30, inputs: [] })).status, 204);
+    assert.equal((await s.sendLog(m.roomId, s.alice, honest(61_000, []))).status, 204);
+    assert.deepEqual(await s.waitFinished(m.roomId), { winner: 'alice', counted: true });
+  } finally {
+    await s.close();
+  }
+});
+
+test('a forfeit winner whose replay tops out before the forfeit does not count', async () => {
+  const s = await boot({ maxHeld: 0 });
+  try {
+    const m = await s.pair();
+    const joined = s.clock.t;
+    const { log, topOutStep } = idleThenTopOut(m.seed, 3_800);
+    await s.syncJson(m.roomId, s.bob, { seq: 0 });
+    await s.syncJson(m.roomId, s.alice, { seq: 0 });
+    s.clock.t = joined + topOutStep * 16 + 1_000;
+    assert.ok(s.clock.t - joined >= 60_000);
+    assert.deepEqual((await s.syncJson(m.roomId, s.alice, { seq: 1 })).result, { winner: 'alice' });
+    assert.equal((await s.sendLog(m.roomId, s.alice, log)).status, 204);
+    assert.deepEqual(await s.waitFinished(m.roomId), { winner: 'alice', counted: false });
+  } finally {
+    await s.close();
+  }
+});
+
 test('a late-joining winner who tops out after a forfeit still counts', async () => {
   const s = await boot({ maxHeld: 0 });
   try {

@@ -175,7 +175,7 @@ export function createArena(deps: {
         (!w.isOver || (reason === 'forfeit' && joinedAt + w.topOutStep! * STEP_MS >= resultAt!));
     }
     const loserLog = live.logs.get(loser);
-    if (counted && loserLog) {
+    if (counted && reason === 'topout' && loserLog) {
       const l = await run({ seed, mode: 'battle', log: loserLog, garbage: live.delivered.get(loser)! });
       counted = l.ok && l.isOver;
     }
