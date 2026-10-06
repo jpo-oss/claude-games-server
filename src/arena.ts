@@ -26,6 +26,7 @@ type Live = {
   state: RoomState;
   delivered: Map<string, Map<number, number>>;
   deliveredAt: Map<number, number>;
+  joinedAt: Map<string, number>;
   seen: Map<string, string>;
   held: Map<string, Held>;
   logs: Map<string, GameLog>;
@@ -151,17 +152,18 @@ export function createArena(deps: {
     const { winner, loser, reason } = live.state.result!;
     const winnerLog = live.logs.get(winner)!;
     const got = live.delivered.get(winner)!;
+    const joinedAt = live.joinedAt.get(winner) ?? startedAt;
     const garbage = winnerLog.garbage ?? [];
     const ids = garbage.map(([, id]) => id);
     const onTime = garbage.every(
-      ([s, id]) => Math.abs(s - Math.round((live.deliveredAt.get(id)! - startedAt) / STEP_MS)) <= GARBAGE_SLACK_STEPS,
+      ([s, id]) => Math.abs(s - Math.round((live.deliveredAt.get(id)! - joinedAt) / STEP_MS)) <= GARBAGE_SLACK_STEPS,
     );
     let counted =
       ids.length === got.size &&
       new Set(ids).size === ids.length &&
       ids.every((id) => got.has(id)) &&
       onTime &&
-      Math.abs(winnerLog.steps * STEP_MS - (resultAt! - startedAt)) <= LENGTH_SLACK_MS &&
+      Math.abs(winnerLog.steps * STEP_MS - (resultAt! - joinedAt)) <= LENGTH_SLACK_MS &&
       resultAt! - startedAt >= MIN_MATCH_MS;
     if (counted) {
       const w = await run({ seed, mode: 'battle', log: winnerLog, garbage: got });
@@ -202,6 +204,7 @@ export function createArena(deps: {
           state: newRoom(roomId, seed, players, t),
           delivered: new Map(players.map((p) => [p, new Map()])),
           deliveredAt: new Map(),
+          joinedAt: new Map(),
           seen: new Map(players.map((p) => [p, view({ snapshot: '', isOver: false })])),
           held: new Map(),
           logs: new Map(),
@@ -213,6 +216,7 @@ export function createArena(deps: {
         for (const p of players) roomOf.set(p, roomId);
       }
       queue = out.state;
+      if (out.result.status === 'matched') rooms.get(out.result.roomId)?.joinedAt.set(login, t);
       return { status: 200, body: out.result };
     },
 

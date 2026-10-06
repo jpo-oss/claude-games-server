@@ -81,9 +81,10 @@ async function boot(opts: { maxPlayers?: number; maxHeld?: number; replayer?: Re
   const alice = await signIn('alice', 1);
   const bob = await signIn('bob', 2);
 
-  const pair = async (a = alice, b = bob) => {
+  const pair = async (a = alice, b = bob, collectAfterMs = 0) => {
     assert.deepEqual(await (await queue(a)).json(), { status: 'waiting' });
     const mb = (await (await queue(b)).json()) as Matched;
+    clock.t += collectAfterMs;
     const ma = (await (await queue(a)).json()) as Matched;
     assert.equal(ma.roomId, mb.roomId);
     return mb;
@@ -126,10 +127,10 @@ function topOutLog(seed: number): GameLog {
 // bob sends alice a 3-line attack a second in, then tops out after `lastsMs`
 async function battle(
   s: Awaited<ReturnType<typeof boot>>,
-  opts: { lastsMs?: number; aliceAttacks?: number[]; bobFinalAttacks?: number[]; winnerLog?: GameLog | null; loserLog?: GameLog } = {},
+  opts: { collectAfterMs?: number; lastsMs?: number; aliceAttacks?: number[]; bobFinalAttacks?: number[]; winnerLog?: GameLog | null; loserLog?: GameLog } = {},
 ) {
   const lastsMs = opts.lastsMs ?? 61_000;
-  const m = await s.pair();
+  const m = await s.pair(s.alice, s.bob, opts.collectAfterMs ?? 0);
   s.clock.t += 1_000;
   await s.syncJson(m.roomId, s.bob, { seq: 0, attacks: [3] });
   const a0 = await s.syncJson(m.roomId, s.alice, { seq: 0, attacks: opts.aliceAttacks ?? [], snapshot: 'T' });
@@ -453,6 +454,24 @@ test('garbage applied within 2 s of delivery still counts', async () => {
     assert.deepEqual(await s.waitFinished(m.roomId), { winner: 'alice', counted: true });
   } finally {
     await s.close();
+  }
+});
+
+test('log timing starts when the winner collected the match', async () => {
+  for (const [collectAfterMs, fromCreation, counted] of [
+    [1_400, false, true],
+    [6_000, false, true],
+    [6_000, true, false],
+  ] as const) {
+    const s = await boot({ maxHeld: 0 });
+    try {
+      const shift = fromCreation ? collectAfterMs : 0;
+      const winnerLog = honest(61_000 + shift, [[1_000 + shift, 1]]);
+      const m = await battle(s, { collectAfterMs, winnerLog });
+      assert.deepEqual(await s.waitFinished(m.roomId), { winner: 'alice', counted }, `${collectAfterMs} ${fromCreation}`);
+    } finally {
+      await s.close();
+    }
   }
 });
 
