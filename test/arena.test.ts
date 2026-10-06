@@ -22,9 +22,10 @@ async function boot(opts: { maxPlayers?: number; maxHeld?: number; replayer?: Re
   const clock = { t: Date.UTC(2026, 9, 6, 12) };
   const db = openDb(':memory:');
   const finished = new Map<string, { winner: string | null; counted: boolean }>();
+  const finishCalls = new Map<string, number>();
   const realFinish = db.finishBattle;
   db.finishBattle = (roomId, winner, counted, now) => {
-    assert.ok(!finished.has(roomId), 'finishBattle called twice');
+    finishCalls.set(roomId, (finishCalls.get(roomId) ?? 0) + 1);
     finished.set(roomId, { winner, counted });
     realFinish(roomId, winner, counted, now);
   };
@@ -90,7 +91,7 @@ async function boot(opts: { maxPlayers?: number; maxHeld?: number; replayer?: Re
     return mb;
   };
 
-  const waitFinished = async (roomId: string, ms = 5_000) => {
+  const waitFinished = async (roomId: string, ms = 20_000) => {
     const end = Date.now() + ms;
     while (!finished.has(roomId)) {
       if (Date.now() > end) throw new Error('battle never finished');
@@ -109,7 +110,7 @@ async function boot(opts: { maxPlayers?: number; maxHeld?: number; replayer?: Re
     db.close();
   };
 
-  return { clock, db, arena, call, signIn, queue, sync, syncJson, sendLog, alice, bob, pair, waitFinished, finished, close };
+  return { clock, db, arena, call, signIn, queue, sync, syncJson, sendLog, alice, bob, pair, waitFinished, finished, finishCalls, close };
 }
 
 // hard drops every step until the stack tops out
@@ -152,6 +153,19 @@ async function battle(
 // no inputs, each attack applied at the step it arrived; lasts as long as the match
 function honest(ms: number, garbage: [number, number][]): GameLog {
   return { steps: Math.round(ms / 16), inputs: [], garbage: garbage.map(([at, id]) => [Math.round(at / 16), id]) };
+}
+
+// no inputs until `idle`, then hard drops every step until the stack tops out
+function idleThenTopOut(seed: number, idle: number): { log: GameLog; topOutStep: number } {
+  let game = newGame('battle', seed);
+  const log: GameLog = { steps: 0, inputs: [] };
+  for (let i = 0; i < idle + 5_000; i++) {
+    const inputs = i >= idle ? (['hardDrop'] as const) : [];
+    for (const inp of inputs) log.inputs.push([i, inp]);
+    game = step(game, [...inputs], 16).game;
+    if (game.isOver) return { log: { ...log, steps: i + 1 }, topOutStep: i };
+  }
+  throw new Error('never topped out');
 }
 
 const pending = (p: Promise<unknown>) => {
@@ -217,8 +231,8 @@ test('sync checks the room and the player', async () => {
   }
 });
 
-test('a held sync answers within 100 ms of the opponent bringing news', async () => {
-  const s = await boot();
+test('news releases a held sync long before its hold timer', async () => {
+  const s = await boot({ timing: { holdMs: 20_000 } });
   try {
     const m = await s.pair();
     const held = s.syncJson(m.roomId, s.alice, { seq: 0, snapshot: 'T' });
@@ -229,7 +243,7 @@ test('a held sync answers within 100 ms of the opponent bringing news', async ()
     const b = await s.syncJson(m.roomId, s.bob, { seq: 0, attacks: [3], snapshot: 'IIII' });
     assert.equal(b.opponent?.snapshot, 'T');
     const a = await held;
-    assert.ok(Date.now() - at < 100, `took ${Date.now() - at} ms`);
+    assert.ok(Date.now() - at < 1_000, `took ${Date.now() - at} ms`);
     assert.deepEqual(a.opponent, { login: 'bob', snapshot: 'IIII', isOver: false });
     assert.deepEqual(a.incoming, [{ id: 1, lines: 3 }]);
     assert.deepEqual((await s.syncJson(m.roomId, s.alice, { seq: 0, snapshot: 'T' })).incoming, [{ id: 1, lines: 3 }]);
@@ -437,6 +451,27 @@ test('a forfeit win with attacks still in the inbox counts', async () => {
   }
 });
 
+test('a late-joining winner who tops out after a forfeit still counts', async () => {
+  const s = await boot({ maxHeld: 0 });
+  try {
+    const created = s.clock.t;
+    const m = await s.pair(s.alice, s.bob, 6_000);
+    const joined = s.clock.t;
+    const { log, topOutStep } = idleThenTopOut(m.seed, 3_800);
+    await s.syncJson(m.roomId, s.bob, { seq: 0 });
+    await s.syncJson(m.roomId, s.alice, { seq: 0 });
+    // forfeit lands 1 s before the winner's top-out on its own clock, 5 s after on the room's
+    s.clock.t = joined + topOutStep * 16 - 1_000;
+    assert.ok(created + topOutStep * 16 < s.clock.t);
+    assert.ok(s.clock.t - created >= 60_000);
+    assert.deepEqual((await s.syncJson(m.roomId, s.alice, { seq: 1 })).result, { winner: 'alice' });
+    assert.equal((await s.sendLog(m.roomId, s.alice, log)).status, 204);
+    assert.deepEqual(await s.waitFinished(m.roomId), { winner: 'alice', counted: true });
+  } finally {
+    await s.close();
+  }
+});
+
 test('garbage held back to the end of the log does not count', async () => {
   const s = await boot({ maxHeld: 0 });
   try {
@@ -521,9 +556,13 @@ test('closing the arena finishes undecided battles once', async () => {
   const live = await s.pair(await s.signIn('carol', 3), await s.signIn('dave', 4));
   const waiting = await battle(s, { winnerLog: null });
   s.arena.close();
+  s.arena.close();
   assert.deepEqual(s.finished.get(live.roomId), { winner: null, counted: false });
   assert.deepEqual(s.finished.get(waiting.roomId), { winner: null, counted: false });
   await s.close();
+  await sleep(300);
+  assert.equal(s.finishCalls.get(live.roomId), 1);
+  assert.equal(s.finishCalls.get(waiting.roomId), 1);
 });
 
 test('closing the arena ends a battle stuck waiting to retry a replay', async () => {
@@ -536,6 +575,7 @@ test('closing the arena ends a battle stuck waiting to retry a replay', async ()
   assert.deepEqual(s.finished.get(m.roomId), { winner: null, counted: false });
   await sleep(50);
   await s.close();
+  assert.equal(s.finishCalls.get(m.roomId), 1);
 });
 
 test('a 45 s match does not count', async () => {

@@ -144,6 +144,7 @@ export function createArena(deps: {
         waits.add(done);
         later(retryMs, done);
       });
+      if (closed) return r;
     }
   }
 
@@ -171,7 +172,7 @@ export function createArena(deps: {
       counted =
         w.ok &&
         w.attacks.reduce((a, b) => a + b, 0) >= sent &&
-        (!w.isOver || (reason === 'forfeit' && startedAt + w.topOutStep! * STEP_MS >= resultAt!));
+        (!w.isOver || (reason === 'forfeit' && joinedAt + w.topOutStep! * STEP_MS >= resultAt!));
     }
     const loserLog = live.logs.get(loser);
     if (counted && loserLog) {
