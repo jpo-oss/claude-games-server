@@ -53,7 +53,7 @@ const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'obj
 const isInt = (v: unknown): v is number => Number.isInteger(v);
 const inputNames: readonly string[] = INPUT_NAMES;
 
-const MAX_STEPS = 6_750_000;
+export const MAX_STEPS = 450_000;
 const MAX_INPUTS = 200_000;
 const MAX_GARBAGE = 10_000;
 
@@ -69,7 +69,7 @@ export function parseSessionBody(body: unknown): Parsed<SessionBody> {
 export function parseGameLog(log: unknown): Parsed<GameLog> {
   if (!isObject(log)) return fail('log must be an object');
   const { steps, inputs, garbage } = log;
-  if (!isInt(steps) || steps < 1 || steps > MAX_STEPS) return fail('steps must be an integer from 1 to 6750000');
+  if (!isInt(steps) || steps < 1 || steps > MAX_STEPS) return fail('steps must be an integer from 1 to 450000');
   if (!Array.isArray(inputs) || inputs.length > MAX_INPUTS) return fail('inputs must be an array of at most 200000 entries');
   let prev = 0;
   for (const e of inputs) {

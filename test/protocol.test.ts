@@ -49,16 +49,16 @@ const log = { steps: 100, inputs: [[0, 'left'], [10, 'hardDrop']] };
 
 test('parseGameLog accepts valid logs', () => {
   assert.equal(parseGameLog(log).ok, true);
-  assert.equal(parseGameLog({ steps: 6_750_000, inputs: [] }).ok, true);
+  assert.equal(parseGameLog({ steps: 450_000, inputs: [] }).ok, true);
   assert.equal(parseGameLog({ steps: 5, inputs: [[5, 'hold']], garbage: [[0, 1], [5, 2]] }).ok, true);
 });
 
 test('parseGameLog rejections', () => {
   bad(parseGameLog(null), 'log must be an object');
-  bad(parseGameLog({ inputs: [] }), 'steps must be an integer from 1 to 6750000');
-  bad(parseGameLog({ steps: 0, inputs: [] }), 'steps must be an integer from 1 to 6750000');
-  bad(parseGameLog({ steps: 1.5, inputs: [] }), 'steps must be an integer from 1 to 6750000');
-  bad(parseGameLog({ steps: 6_750_001, inputs: [] }), 'steps must be an integer from 1 to 6750000');
+  bad(parseGameLog({ inputs: [] }), 'steps must be an integer from 1 to 450000');
+  bad(parseGameLog({ steps: 0, inputs: [] }), 'steps must be an integer from 1 to 450000');
+  bad(parseGameLog({ steps: 1.5, inputs: [] }), 'steps must be an integer from 1 to 450000');
+  bad(parseGameLog({ steps: 450_001, inputs: [] }), 'steps must be an integer from 1 to 450000');
   bad(parseGameLog({ steps: 10 }), 'inputs must be an array of at most 200000 entries');
   bad(parseGameLog({ steps: 10, inputs: new Array(200_001).fill([0, 'left']) }), 'inputs must be an array of at most 200000 entries');
   bad(parseGameLog({ steps: 10, inputs: [5] }), 'inputs entries must be [step, input] pairs');
@@ -85,7 +85,7 @@ test('parseScoreBody accepts and rejects', () => {
   bad(parseScoreBody({ log }), 'gameId must be 1 to 64 letters, digits, - or _');
   bad(parseScoreBody({ gameId: 'a b', log }), 'gameId must be 1 to 64 letters, digits, - or _');
   bad(parseScoreBody({ gameId: 'a'.repeat(65), log }), 'gameId must be 1 to 64 letters, digits, - or _');
-  bad(parseScoreBody({ gameId: 'abc', log: { steps: 0, inputs: [] } }), 'steps must be an integer from 1 to 6750000');
+  bad(parseScoreBody({ gameId: 'abc', log: { steps: 0, inputs: [] } }), 'steps must be an integer from 1 to 450000');
 });
 
 test('parseLogBody accepts and rejects', () => {

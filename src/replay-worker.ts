@@ -1,3 +1,4 @@
+// Jobs must carry a log already validated by parseGameLog.
 import { parentPort } from 'node:worker_threads';
 import { replay } from './replay.ts';
 import type { WorkerJob } from './replay.ts';

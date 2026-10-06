@@ -24,6 +24,7 @@ export type ReplayResult =
     }
   | { ok: false; error: string };
 
+// The log must already have passed parseGameLog.
 export function replay(job: ReplayJob): ReplayResult {
   const { log } = job;
   let game = newGame(job.mode, job.seed);
@@ -67,48 +68,70 @@ type Pending = {
   resolve: (r: ReplayResult) => void;
 };
 
-export function createReplayer(opts: { maxConcurrent?: number; timeoutMs?: number } = {}) {
+export function createReplayer(opts: { maxConcurrent?: number; timeoutMs?: number; maxQueue?: number } = {}) {
   const maxConcurrent = opts.maxConcurrent ?? 2;
   const timeoutMs = opts.timeoutMs ?? 10_000;
+  const maxQueue = opts.maxQueue ?? 32;
   const queue: Pending[] = [];
-  const running = new Map<Worker, (r: ReplayResult) => void>();
+  // A slot stays taken until its worker has fully exited.
+  const slots = new Set<Promise<void>>();
+  const finishers = new Set<(r: ReplayResult) => void>();
   let closed = false;
 
   function pump() {
-    while (!closed && running.size < maxConcurrent && queue.length > 0) start(queue.shift()!);
+    while (!closed && slots.size < maxConcurrent && queue.length > 0) start(queue.shift()!);
   }
 
   function start({ job, resolve }: Pending) {
-    const worker = new Worker(new URL('./replay-worker.ts', import.meta.url));
+    let worker: Worker | undefined;
     let timer: NodeJS.Timeout | undefined;
+    let settled = false;
+    let release!: () => void;
+    const slot = new Promise<void>((r) => (release = r));
+    slots.add(slot);
     const finish = (r: ReplayResult) => {
-      if (!running.delete(worker)) return;
+      if (settled) return;
+      settled = true;
       clearTimeout(timer);
-      void worker.terminate();
+      finishers.delete(finish);
       resolve(r);
-      pump();
+      void (worker ? worker.terminate() : Promise.resolve()).catch(() => undefined).then(() => {
+        slots.delete(slot);
+        release();
+        pump();
+      });
     };
-    running.set(worker, finish);
-    timer = setTimeout(() => finish({ ok: false, error: 'timeout' }), timeoutMs);
-    worker.once('message', (r: ReplayResult) => finish(r));
-    worker.once('error', () => finish({ ok: false, error: 'replay failed' }));
-    worker.once('exit', () => finish({ ok: false, error: 'replay failed' }));
-    const msg: WorkerJob = { ...job, garbage: job.garbage ? [...job.garbage] : undefined };
-    worker.postMessage(msg);
+    finishers.add(finish);
+    try {
+      worker = new Worker(new URL('./replay-worker.ts', import.meta.url), {
+        resourceLimits: { maxOldGenerationSizeMb: 64 },
+      });
+      timer = setTimeout(() => finish({ ok: false, error: 'timeout' }), timeoutMs);
+      worker.once('message', (r: ReplayResult) => finish(r));
+      worker.once('error', () => finish({ ok: false, error: 'replay failed' }));
+      worker.once('exit', () => finish({ ok: false, error: 'replay failed' }));
+      const msg: WorkerJob = { ...job, garbage: job.garbage ? [...job.garbage] : undefined };
+      worker.postMessage(msg);
+    } catch {
+      finish({ ok: false, error: 'replay failed' });
+    }
   }
 
   return {
     run(job: ReplayJob): Promise<ReplayResult> {
       if (closed) return Promise.resolve({ ok: false, error: 'closed' });
+      if (slots.size >= maxConcurrent && queue.length >= maxQueue) return Promise.resolve({ ok: false, error: 'busy' });
       return new Promise((resolve) => {
         queue.push({ job, resolve });
         pump();
       });
     },
+    active: () => slots.size,
     async close(): Promise<void> {
       closed = true;
       for (const p of queue.splice(0)) p.resolve({ ok: false, error: 'closed' });
-      for (const finish of [...running.values()]) finish({ ok: false, error: 'closed' });
+      for (const f of [...finishers]) f({ ok: false, error: 'closed' });
+      await Promise.all([...slots]);
     },
   };
 }
