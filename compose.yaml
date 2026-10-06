@@ -1,0 +1,33 @@
+services:
+  server:
+    image: ghcr.io/jpo-oss/claude-games-server:${SERVER_VERSION:-latest}
+    build: .
+    init: true
+    env_file: .env
+    environment:
+      TRUST_PROXY: "true"
+    volumes:
+      - server-data:/data
+    restart: unless-stopped
+
+  caddy:
+    # caddy:2
+    image: caddy:2@sha256:f2a1290d0463aad60660d4ec134943f183ee2a5f6c3eb7bf32dd984f2f020772
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      DOMAIN: ${DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - server
+    restart: unless-stopped
+
+volumes:
+  server-data:
+  caddy-data:
+  caddy-config:
