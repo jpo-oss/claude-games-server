@@ -2,6 +2,7 @@ services:
   server:
     image: ghcr.io/jpo-oss/claude-games-server:${SERVER_VERSION:-latest}
     build: .
+    init: true
     env_file: .env
     environment:
       TRUST_PROXY: "true"

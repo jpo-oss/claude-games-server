@@ -96,10 +96,11 @@ export async function start(
   );
   applyLimits(server, config.maxConnections);
   await new Promise<void>((resolve) => server.listen(config.port, resolve));
+  let closing: Promise<void> | undefined;
   return {
     port: (server.address() as AddressInfo).port,
     close: () =>
-      new Promise<void>((resolve, reject) => {
+      (closing ??= new Promise<void>((resolve, reject) => {
         arena.close();
         server.close((err) => {
           db.close();
@@ -108,11 +109,14 @@ export async function start(
           else resolve();
         });
         server.closeAllConnections();
-      }),
+      })),
   };
 }
 
 if (import.meta.main) {
-  const { port } = await start(loadConfig(process.env));
+  const { port, close } = await start(loadConfig(process.env));
+  const stop = () => close().then(() => process.exit(0), () => process.exit(1));
+  process.once('SIGTERM', stop);
+  process.once('SIGINT', stop);
   console.log(`listening on ${port}`);
 }
