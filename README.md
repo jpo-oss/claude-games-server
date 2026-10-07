@@ -1,6 +1,6 @@
 # claude-games-server
 
-Game server for Block Battle, a falling-block game that runs inside Claude Code. It handles sign-in, the marathon leaderboard and head-to-head battles, and checks scores and wins by replaying the games. The game itself lives in [jpo-oss/claude-games](https://github.com/jpo-oss/claude-games). Players can point it at any server, so you can run your own.
+Game server for Block Battle, a falling-block game that runs inside Claude Code. It handles sign-in, the Marathon and Vs Bot leaderboards and head-to-head battles, and checks scores and wins by replaying the games. The game itself lives in [jpo-oss/claude-games](https://github.com/jpo-oss/claude-games). Players can point it at any server, so you can run your own.
 
 ## What you need
 
@@ -78,7 +78,7 @@ See the `trusted_proxies` option in the [Caddy global options docs](https://cadd
 
 ## What's stored and logged
 
-Stored: GitHub login and numeric ID, the date the account was created, hashed session keys, scores and battle results. Your GitHub token is checked once at sign-in and not kept.
+Stored: GitHub login and numeric ID, the date the account was created, hashed session keys, scores, battle results and Vs Bot results. Your GitHub token is checked once at sign-in and not kept.
 
 Logged: method, route, status, login and duration for each request, plus the error type (never its message) when the server fails one. Tokens, request bodies and IP addresses are never logged.
 
