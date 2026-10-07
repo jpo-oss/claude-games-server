@@ -1,6 +1,6 @@
 import { newGame, receiveGarbage, step } from './engine.ts'
 import type { Game, GameEvent, Input } from './engine.ts'
-import { botInputs, botSaw, newBot } from './bot.ts'
+import { botStep, newBot } from './bot.ts'
 import type { Bot, Level } from './bot.ts'
 
 const STEP_MS = 16
@@ -18,8 +18,7 @@ export const newMatch = (seed: number, level: Level): Match => ({
 export function stepMatch(m: Match, inputs: readonly Input[]): { me: GameEvent[]; bot: GameEvent[] } {
   if (m.winner) return { me: [], bot: [] }
   const a = step(m.me, [...inputs], STEP_MS)
-  const b = step(m.bot, botInputs(m.brain, m.bot), STEP_MS)
-  botSaw(m.brain, b.events)
+  const b = botStep(m.brain, m.bot, STEP_MS)
   let me = a.game
   let bot = b.game
   for (const e of a.events) if (e.type === 'lineClear' && e.attack > 0) bot = receiveGarbage(bot, e.attack)

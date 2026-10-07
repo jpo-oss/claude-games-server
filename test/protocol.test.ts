@@ -24,8 +24,8 @@ function bad(r: { ok: boolean }, error?: string) {
   if (error) assert.equal(e.error, error);
 }
 
-test('protocol version is 2', () => {
-  assert.equal(PROTOCOL_VERSION, 2);
+test('protocol version is 3', () => {
+  assert.equal(PROTOCOL_VERSION, 3);
 });
 
 test('input names list has 10 entries', () => {
@@ -185,7 +185,7 @@ test('QueueReply, ConfigReply and SessionReply shapes', () => {
   assert.deepEqual(keys(waiting), ['status']);
   assert.deepEqual(keys(matched), ['opponent', 'roomId', 'seed', 'status']);
   assert.deepEqual(keys((matched as { opponent: object }).opponent), ['login']);
-  const config: ConfigReply = { githubClientId: 'x', protocol: 2 };
+  const config: ConfigReply = { githubClientId: 'x', protocol: 3 };
   assert.deepEqual(keys(config), ['githubClientId', 'protocol']);
   const session: SessionReply = { session: 's', login: 'a' };
   assert.deepEqual(keys(session), ['login', 'session']);

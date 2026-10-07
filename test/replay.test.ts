@@ -280,10 +280,10 @@ test('bot jobs get their own longer timeout', async () => {
 });
 
 test('a long bot match replays fast enough for the bot timeout', () => {
-  const { log } = record(5, 'easy', 60_000, 'hard');
+  const { log } = record(5, 'hard', 60_000, 'hard');
   assert.ok(log.steps > 2_000);
   const t0 = performance.now();
-  replay({ seed: 5, mode: 'battle', log, level: 'easy' });
+  replay({ seed: 5, mode: 'battle', log, level: 'hard' });
   // 450,000 steps at this rate stay under the 60 s bot timeout.
   assert.ok((performance.now() - t0) / log.steps < 0.1);
 });

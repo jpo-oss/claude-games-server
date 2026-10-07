@@ -59,7 +59,7 @@ async function boot(opts: { maxPlayers?: number; maxHeld?: number; replayer?: Re
   const call = (path: string, init: RequestInit = {}, token?: string) =>
     fetch(`http://127.0.0.1:${port}${path}`, {
       ...init,
-      headers: { 'x-protocol-version': '2', ...(token ? { authorization: `Bearer ${token}` } : {}) },
+      headers: { 'x-protocol-version': '3', ...(token ? { authorization: `Bearer ${token}` } : {}) },
     });
   const signIn = async (login: string, id: number) => {
     who = { login, id };
@@ -740,7 +740,7 @@ test('main serves the battle routes', async () => {
     const call = (path: string, init: RequestInit = {}, token?: string) =>
       fetch(`http://127.0.0.1:${s.port}${path}`, {
         ...init,
-        headers: { 'x-protocol-version': '2', ...(token ? { authorization: `Bearer ${token}` } : {}) },
+        headers: { 'x-protocol-version': '3', ...(token ? { authorization: `Bearer ${token}` } : {}) },
       });
     const { session } = (await (await call('/v1/session', { method: 'POST', body: '{"githubToken":"t"}' })).json()) as { session: string };
     assert.deepEqual(await (await call('/v1/battle/queue', { method: 'POST' }, session)).json(), { status: 'waiting' });
