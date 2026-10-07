@@ -1,4 +1,6 @@
 import type { Input } from './engine.ts';
+import { LEVELS } from './bot.ts';
+import type { Level } from './bot.ts';
 
 export const PROTOCOL_VERSION = 2;
 
@@ -39,10 +41,14 @@ export type ReplayLog = {
 export type ConfigReply = { githubClientId: string; protocol: 2 };
 export type SessionBody = { githubToken: string };
 export type SessionReply = { session: string; login: string };
+export type BotRow = { login: string; ms: number; at: number };
 export type LeaderboardReply = {
   marathon: { login: string; score: number; lines: number; level: number; at: number }[];
   wins: { login: string; wins: number }[];
+  bot: Record<Level, BotRow[]>;
 };
+export type BotStartBody = { level: Level };
+export type BotStartReply = { gameId: string; seed: number };
 export type MarathonStartReply = { gameId: string; seed: number };
 export type ScoreBody = { gameId: string; log: GameLog };
 export type ParsedScoreBody = { gameId: string; log: ReplayLog };
@@ -73,6 +79,13 @@ export function parseSessionBody(body: unknown): Parsed<SessionBody> {
     return fail('githubToken must be 1 to 255 visible characters');
   }
   return { ok: true, value: { githubToken: t } };
+}
+
+export function parseBotStart(body: unknown): Parsed<BotStartBody> {
+  if (!isObject(body)) return fail('body must be an object');
+  const { level } = body;
+  if (typeof level !== 'string' || !(LEVELS as readonly string[]).includes(level)) return fail('level must be easy, medium or hard');
+  return { ok: true, value: { level: level as Level } };
 }
 
 export function encodeLog(log: ReplayLog): GameLog {
