@@ -28,7 +28,7 @@ Game server for Block Battle, a falling-block game that runs inside Claude Code.
 
    The check should print `{"ok":true}`.
 
-5. Tell your players. In Block Battle they pick Battle, choose "Enter a server address", and type `https://<your domain>`. They can also set it as their default in the plugin settings.
+5. Tell your players. In Block Battle they pick Battle, choose "Enter a server address", and type `https://<your domain>`. The game remembers the last address they typed.
 
 ## Updating
 
@@ -74,7 +74,7 @@ Caddy ignores an incoming `X-Forwarded-For` header unless it trusts the sender, 
 
 Without the `header_up` line Caddy appends the proxy's own address, which is the one the server would use.
 
-See the [Caddy reverse_proxy docs](https://caddyserver.com/docs/caddyfile/directives/reverse_proxy#trusted_proxies) for the details.
+See the `trusted_proxies` option in the [Caddy global options docs](https://caddyserver.com/docs/caddyfile/options) for the details.
 
 ## What's stored and logged
 
