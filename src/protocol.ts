@@ -2,7 +2,7 @@ import type { Input } from './engine.ts';
 import { LEVELS } from './bot.ts';
 import type { Level } from './bot.ts';
 
-export const PROTOCOL_VERSION = 2;
+export const PROTOCOL_VERSION = 3;
 
 export const INPUT_NAMES = [
   'left',
@@ -38,7 +38,7 @@ export type ReplayLog = {
   garbage?: [number, number][];
 };
 
-export type ConfigReply = { githubClientId: string; protocol: 2 };
+export type ConfigReply = { githubClientId: string; protocol: 3 };
 export type SessionBody = { githubToken: string };
 export type SessionReply = { session: string; login: string };
 export type BotRow = { login: string; ms: number; at: number };

@@ -21,7 +21,7 @@ async function boot() {
   const call = (path: string, init: RequestInit = {}) =>
     fetch(`http://127.0.0.1:${s.port}${path}`, {
       ...init,
-      headers: { 'x-protocol-version': '2', ...(session ? { authorization: `Bearer ${session}` } : {}) },
+      headers: { 'x-protocol-version': '3', ...(session ? { authorization: `Bearer ${session}` } : {}) },
     });
   let session = '';
   session = ((await (await call('/v1/session', { method: 'POST', body: '{"githubToken":"t"}' })).json()) as { session: string }).session;

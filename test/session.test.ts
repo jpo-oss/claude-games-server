@@ -26,7 +26,7 @@ function fakeGithub(opts: { check?: number | 'throw'; user?: number; login?: str
 async function boot(gh: ReturnType<typeof fakeGithub>, logs: string[] = []) {
   const s = await start(cfg, { fetch: gh.fetch, log: (l) => logs.push(l) });
   const call = (path: string, init: RequestInit = {}) =>
-    fetch(`http://127.0.0.1:${s.port}${path}`, { ...init, headers: { 'x-protocol-version': '2', ...(init.headers as object) } });
+    fetch(`http://127.0.0.1:${s.port}${path}`, { ...init, headers: { 'x-protocol-version': '3', ...(init.headers as object) } });
   const signIn = () => call('/v1/session', { method: 'POST', body: JSON.stringify({ githubToken: TOKEN }) });
   return { ...s, call, signIn };
 }
@@ -35,7 +35,7 @@ test('config', async () => {
   const s = await boot(fakeGithub());
   try {
     const r = await fetch(`http://127.0.0.1:${s.port}/v1/config`);
-    assert.deepEqual(await r.json(), { githubClientId: 'cid', protocol: 2 });
+    assert.deepEqual(await r.json(), { githubClientId: 'cid', protocol: 3 });
   } finally {
     await s.close();
   }
@@ -107,7 +107,7 @@ test('github token is never logged or stored', async () => {
   try {
     const r = await fetch(`http://127.0.0.1:${s.port}/v1/session`, {
       method: 'POST',
-      headers: { 'x-protocol-version': '2' },
+      headers: { 'x-protocol-version': '3' },
       body: JSON.stringify({ githubToken: TOKEN }),
     });
     assert.equal(r.status, 200);
@@ -131,7 +131,7 @@ test('no player or session row for a rejected token', async () => {
   try {
     const r = await fetch(`http://127.0.0.1:${s.port}/v1/session`, {
       method: 'POST',
-      headers: { 'x-protocol-version': '2' },
+      headers: { 'x-protocol-version': '3' },
       body: JSON.stringify({ githubToken: TOKEN }),
     });
     assert.equal(r.status, 401);

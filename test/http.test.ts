@@ -30,7 +30,7 @@ async function serve(opts: { trustProxy?: boolean; log?: (l: string) => void; no
   await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
   const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   const call = (path: string, init: RequestInit = {}) =>
-    fetch(base + path, { ...init, headers: { 'x-protocol-version': '2', ...(init.headers as object) } });
+    fetch(base + path, { ...init, headers: { 'x-protocol-version': '3', ...(init.headers as object) } });
   return { call, base, close: () => { server.closeAllConnections(); server.close(); } };
 }
 
@@ -51,8 +51,8 @@ test('426 on missing or wrong protocol, /health exempt', async () => {
   try {
     const none = await fetch(s.base + '/echo', { method: 'POST', body: '{}' });
     assert.equal(none.status, 426);
-    assert.deepEqual(await none.json(), { error: 'protocol 2 required' });
-    const wrong = await fetch(s.base + '/echo', { method: 'POST', body: '{}', headers: { 'x-protocol-version': '1' } });
+    assert.deepEqual(await none.json(), { error: 'protocol 3 required' });
+    const wrong = await fetch(s.base + '/echo', { method: 'POST', body: '{}', headers: { 'x-protocol-version': '2' } });
     assert.equal(wrong.status, 426);
     assert.equal((await fetch(s.base + '/health')).status, 200);
   } finally { s.close(); }
@@ -160,7 +160,7 @@ test('an auth route answers 401 before reading the body', async () => {
     const port = new URL(s.base).port;
     const reply = await new Promise<string>((resolve) => {
       const sock = connect(Number(port), '127.0.0.1', () =>
-        sock.write('POST /upload HTTP/1.1\r\nHost: x\r\nX-Protocol-Version: 2\r\nContent-Length: 1048576\r\n\r\n' + 'x'.repeat(1000)));
+        sock.write('POST /upload HTTP/1.1\r\nHost: x\r\nX-Protocol-Version: 3\r\nContent-Length: 1048576\r\n\r\n' + 'x'.repeat(1000)));
       const timer = setTimeout(() => { sock.destroy(); resolve('timeout'); }, 2_000);
       let data = '';
       sock.on('data', (d) => (data += d));
@@ -256,13 +256,13 @@ test('a handler that outlives requestTimeout after the body is read still comple
   await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
   const port = (server.address() as AddressInfo).port;
   try {
-    const res = await fetch(`http://127.0.0.1:${port}/hold`, { method: 'POST', headers: { 'x-protocol-version': '2' }, body: '{}' });
+    const res = await fetch(`http://127.0.0.1:${port}/hold`, { method: 'POST', headers: { 'x-protocol-version': '3' }, body: '{}' });
     assert.equal(res.status, 200);
     assert.deepEqual(await res.json(), { held: true });
 
     const status = await new Promise<string>((resolve) => {
       const sock = connect(port, '127.0.0.1', () =>
-        sock.write('POST /hold HTTP/1.1\r\nHost: x\r\nX-Protocol-Version: 2\r\nContent-Length: 100\r\n\r\n{'));
+        sock.write('POST /hold HTTP/1.1\r\nHost: x\r\nX-Protocol-Version: 3\r\nContent-Length: 100\r\n\r\n{'));
       let data = '';
       sock.on('data', (d) => (data += d));
       sock.on('close', () => resolve(data.split('\r\n')[0]));

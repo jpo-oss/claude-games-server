@@ -23,7 +23,7 @@ async function boot(replayer: Pick<ReturnType<typeof createReplayer>, 'run' | 'c
   const call = (path: string, init: RequestInit = {}, token?: string) =>
     fetch(`http://127.0.0.1:${s.port}${path}`, {
       ...init,
-      headers: { 'x-protocol-version': '2', ...(token ? { authorization: `Bearer ${token}` } : {}) },
+      headers: { 'x-protocol-version': '3', ...(token ? { authorization: `Bearer ${token}` } : {}) },
     });
   const signIn = async (login: string, id: number) => {
     who = { login, id };

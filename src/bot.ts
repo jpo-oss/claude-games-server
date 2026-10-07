@@ -5,13 +5,14 @@ import type { Game, GameEvent, Input, Kind } from './engine.ts'
 export type Level = 'easy' | 'medium' | 'hard'
 export const LEVELS: readonly Level[] = ['easy', 'medium', 'hard']
 
-type Tuning = { pace: number; hold: boolean; lookahead: boolean; slip: number; slipTo: 'top5' | 'second' | 'none' }
+type Tuning = { pace: number; hold: boolean; lookahead: boolean; slip: number; slipTo: 'top5' | 'second' | 'none'; top: number }
 
 // pace: steps between inputs. slip: pieces per thousand that take a worse placement.
+// top: the engine level whose gravity the bot's board never goes past.
 export const TUNING: Record<Level, Tuning> = {
-  easy: { pace: 12, hold: false, lookahead: false, slip: 300, slipTo: 'top5' },
-  medium: { pace: 5, hold: true, lookahead: false, slip: 50, slipTo: 'second' },
-  hard: { pace: 3, hold: false, lookahead: true, slip: 0, slipTo: 'none' },
+  easy: { pace: 12, hold: false, lookahead: false, slip: 300, slipTo: 'top5', top: 5 },
+  medium: { pace: 5, hold: true, lookahead: false, slip: 50, slipTo: 'second', top: 8 },
+  hard: { pace: 3, hold: false, lookahead: true, slip: 0, slipTo: 'none', top: 10 },
 }
 
 // Placements scored per step, so a long think spreads over steps instead of stalling one.
@@ -272,6 +273,9 @@ export function botInputs(b: Bot, game: Game): Input[] {
   b.wait = TUNING[b.level].pace
   return [nextInput(b, game)]
 }
+
+// Without a top speed the bot's own line clears raise its level until pieces outrun its pace.
+export const capSpeed = (b: Bot, game: Game): Game => (game.level > TUNING[b.level].top ? { ...game, level: TUNING[b.level].top } : game)
 
 export function botSaw(b: Bot, events: readonly GameEvent[]): void {
   if (!events.some(e => e.type === 'lock' || e.type === 'topOut')) return
