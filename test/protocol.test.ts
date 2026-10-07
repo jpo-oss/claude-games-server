@@ -154,9 +154,12 @@ test('LeaderboardReply rows carry the fields the client reads', () => {
   const reply: LeaderboardReply = {
     marathon: [{ login: 'a', score: 1, lines: 2, level: 3, at: 1700000000000 }],
     wins: [{ login: 'a', wins: 1 }],
+    bot: { easy: [{ login: 'a', ms: 16, at: 1700000000000 }], medium: [], hard: [] },
   };
   const json = JSON.parse(JSON.stringify(reply));
-  assert.deepEqual(keys(json), ['marathon', 'wins']);
+  assert.deepEqual(keys(json), ['bot', 'marathon', 'wins']);
+  assert.deepEqual(keys(json.bot), ['easy', 'hard', 'medium']);
+  assert.deepEqual(keys(json.bot.easy[0]), ['at', 'login', 'ms']);
   assert.deepEqual(keys(json.marathon[0]), ['at', 'level', 'lines', 'login', 'score']);
   assert.deepEqual(keys(json.wins[0]), ['login', 'wins']);
 });

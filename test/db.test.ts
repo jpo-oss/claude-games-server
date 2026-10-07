@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { openDb, type Db } from '../src/db.ts';
+import type { Level } from '../src/bot.ts';
 
 const DAY = 24 * 3600 * 1000;
 const NOW = Date.UTC(2026, 9, 6, 12);
@@ -176,4 +177,64 @@ test('a login taken over by another account keeps every returned login valid', (
   lb = db.leaderboard(NOW + 5);
   assert.deepEqual(lb.marathon.map((r) => [r.login, r.score]), [['ann-two', 500], ['ann', 40]]);
   assert.deepEqual(lb.wins, [{ login: 'ann-two', wins: 1 }]);
+});
+
+function botGame(db: Db, login: string, level: Level, won: boolean | null, steps: number, at: number) {
+  const id = db.startBotGame(login, level, 1, at - 1000);
+  db.finishBotGame(id, won === null ? null : { won, steps }, at);
+}
+
+test('bot boards: best win per player per level, fewest steps first, wins only', () => {
+  const db = openDb(':memory:');
+  for (const n of ['a', 'b', 'c', 'd', 'e', 'f']) player(db, n);
+  botGame(db, 'a', 'easy', true, 900, NOW - 50);
+  botGame(db, 'a', 'easy', true, 700, NOW - 40);
+  botGame(db, 'b', 'easy', true, 700, NOW - 45);
+  botGame(db, 'c', 'easy', false, 100, NOW - 30);
+  botGame(db, 'd', 'easy', null, 50, NOW - 20);
+  botGame(db, 'e', 'hard', true, 5000, NOW - 10);
+  for (const [i, n] of ['f', 'a', 'b', 'c', 'd'].entries()) botGame(db, n, 'medium', true, 100 + i, NOW - 5);
+  botGame(db, 'e', 'medium', true, 200, NOW - 5);
+  const lb = db.leaderboard(NOW);
+  assert.deepEqual(lb.bot.easy, [
+    { login: 'b', ms: 700 * 16, at: NOW - 45 },
+    { login: 'a', ms: 700 * 16, at: NOW - 40 },
+  ]);
+  assert.deepEqual(lb.bot.hard, [{ login: 'e', ms: 5000 * 16, at: NOW - 10 }]);
+  assert.deepEqual(lb.bot.medium.map((r) => r.login), ['f', 'a', 'b', 'c', 'd']);
+});
+
+test('bot boards hide accounts younger than 30 days', () => {
+  const db = openDb(':memory:');
+  player(db, 'old', NOW - 30 * DAY);
+  player(db, 'new', NOW - 30 * DAY + 1);
+  botGame(db, 'old', 'hard', true, 900, NOW - 10);
+  botGame(db, 'new', 'hard', true, 100, NOW - 10);
+  assert.deepEqual(db.leaderboard(NOW).bot.hard.map((r) => r.login), ['old']);
+});
+
+test('an empty server has an empty bot board for each level', () => {
+  const db = openDb(':memory:');
+  assert.deepEqual(db.leaderboard(NOW).bot, { easy: [], medium: [], hard: [] });
+});
+
+test('a bot game finishes once and keeps its level and seed', () => {
+  const db = openDb(':memory:');
+  player(db, 'a');
+  const id = db.startBotGame('a', 'medium', 42, NOW - 100);
+  assert.deepEqual(db.getBotGame(id), { id, login: 'a', level: 'medium', seed: 42, startedAt: NOW - 100, finishedAt: null, won: null, steps: null });
+  assert.equal(db.finishBotGame(id, { won: true, steps: 300 }, NOW), true);
+  assert.equal(db.finishBotGame(id, { won: false, steps: 1 }, NOW + 1), false);
+  assert.deepEqual(db.getBotGame(id), { id, login: 'a', level: 'medium', seed: 42, startedAt: NOW - 100, finishedAt: NOW, won: 1, steps: 300 });
+  assert.equal(db.getBotGame('nope'), null);
+});
+
+test('open games count Marathon and Vs Bot together, inside the window only', () => {
+  const db = openDb(':memory:');
+  player(db, 'a');
+  db.startMarathon('a', 1, NOW - 10);
+  db.startBotGame('a', 'easy', 1, NOW - 10);
+  db.finishBotGame(db.startBotGame('a', 'hard', 1, NOW - 10), { won: false, steps: 5 }, NOW);
+  db.startBotGame('a', 'easy', 1, NOW - 3 * 3600 * 1000);
+  assert.equal(db.openGames('a', NOW - 2 * 3600 * 1000), 2);
 });

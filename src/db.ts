@@ -1,6 +1,8 @@
 import { DatabaseSync } from 'node:sqlite';
 import { createHash, randomBytes } from 'node:crypto';
-import type { LeaderboardReply } from './protocol.ts';
+import { LEVELS } from './bot.ts';
+import type { Level } from './bot.ts';
+import type { BotRow, LeaderboardReply } from './protocol.ts';
 
 const DAY = 24 * 3600 * 1000;
 const SESSION_IDLE = 30 * DAY;
@@ -41,6 +43,17 @@ CREATE TABLE IF NOT EXISTS battles (
 );
 CREATE INDEX IF NOT EXISTS marathon_best ON marathon_games(login, score);
 CREATE INDEX IF NOT EXISTS battles_counted ON battles(winner, counted);
+CREATE TABLE IF NOT EXISTS bot_games (
+  id TEXT PRIMARY KEY,
+  login TEXT NOT NULL REFERENCES players(login) ON UPDATE CASCADE ON DELETE CASCADE,
+  level TEXT NOT NULL CHECK (level IN ('easy', 'medium', 'hard')),
+  seed INTEGER NOT NULL,
+  started_at INTEGER NOT NULL,
+  finished_at INTEGER,
+  won INTEGER,
+  steps INTEGER
+);
+CREATE INDEX IF NOT EXISTS bot_best ON bot_games(level, won, steps);
 `;
 
 export type MarathonGame = {
@@ -52,6 +65,17 @@ export type MarathonGame = {
   score: number | null;
   lines: number | null;
   level: number | null;
+};
+
+export type BotGame = {
+  id: string;
+  login: string;
+  level: Level;
+  seed: number;
+  startedAt: number;
+  finishedAt: number | null;
+  won: number | null;
+  steps: number | null;
 };
 
 export type Db = ReturnType<typeof openDb>;
@@ -77,6 +101,21 @@ export function openDb(path: string) {
     getSession: db.prepare('SELECT login, last_used_at FROM sessions WHERE token_hash = ?'),
     touchSession: db.prepare('UPDATE sessions SET last_used_at = ? WHERE token_hash = ?'),
     delSession: db.prepare('DELETE FROM sessions WHERE token_hash = ?'),
+    addBot: db.prepare('INSERT INTO bot_games (id, login, level, seed, started_at) VALUES (?, ?, ?, ?, ?)'),
+    getBot: db.prepare(
+      `SELECT id, login, level, seed, started_at AS startedAt, finished_at AS finishedAt, won, steps
+       FROM bot_games WHERE id = ?`,
+    ),
+    endBot: db.prepare('UPDATE bot_games SET finished_at = ?, won = ?, steps = ? WHERE id = ? AND finished_at IS NULL'),
+    openBot: db.prepare('SELECT COUNT(*) AS n FROM bot_games WHERE login = ? AND finished_at IS NULL AND started_at >= ?'),
+    botBest: db.prepare(
+      `SELECT login, ms, at FROM (
+         SELECT g.login, g.steps * 16 AS ms, g.finished_at AS at,
+                ROW_NUMBER() OVER (PARTITION BY g.login ORDER BY g.steps ASC, g.finished_at ASC) AS rn
+         FROM bot_games g JOIN players p ON p.login = g.login
+         WHERE g.level = ? AND g.won = 1 AND p.login <> 'ghost-' || p.github_id AND p.github_created_at <= ?
+       ) WHERE rn = 1 ORDER BY ms ASC, at ASC LIMIT 5`,
+    ),
     addGame: db.prepare('INSERT INTO marathon_games (id, login, seed, started_at) VALUES (?, ?, ?, ?)'),
     getGame: db.prepare(
       `SELECT id, login, seed, started_at AS startedAt, finished_at AS finishedAt, score, lines, level
@@ -170,11 +209,36 @@ export function openDb(path: string) {
       return (q.open.get(login, since) as { n: number }).n;
     },
 
+    openGames(login: string, since: number): number {
+      return (q.open.get(login, since) as { n: number }).n + (q.openBot.get(login, since) as { n: number }).n;
+    },
+
+    startBotGame(login: string, level: Level, seed: number, now: number): string {
+      const id = token(16);
+      q.addBot.run(id, login, level, seed, now);
+      return id;
+    },
+
+    getBotGame(id: string): BotGame | null {
+      const row = q.getBot.get(id) as BotGame | undefined;
+      return row ? { ...row } : null;
+    },
+
+    finishBotGame(id: string, result: { won: boolean; steps: number } | null, now: number): boolean {
+      const won = result === null ? null : result.won ? 1 : 0;
+      const r = q.endBot.run(now, won, result?.steps ?? null, id);
+      return Number(r.changes) > 0;
+    },
+
     leaderboard(now: number): LeaderboardReply {
       const cutoff = now - MIN_ACCOUNT_AGE;
+      const bot = Object.fromEntries(
+        LEVELS.map((l) => [l, q.botBest.all(l, cutoff).map((r) => ({ ...r })) as BotRow[]]),
+      ) as LeaderboardReply['bot'];
       return {
         marathon: q.best.all(cutoff).map((r) => ({ ...r })) as LeaderboardReply['marathon'],
         wins: q.wins.all(cutoff).map((r) => ({ ...r })) as LeaderboardReply['wins'],
+        bot,
       };
     },
 
