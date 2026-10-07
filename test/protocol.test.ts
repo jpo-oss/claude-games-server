@@ -180,10 +180,12 @@ test('SyncReply carries opponent login and incoming ids', () => {
 });
 
 test('QueueReply, ConfigReply and SessionReply shapes', () => {
-  const waiting: QueueReply = { status: 'waiting' };
-  const matched: QueueReply = { status: 'matched', roomId: 'r1', seed: 5, opponent: { login: 'b' } };
-  assert.deepEqual(keys(waiting), ['status']);
-  assert.deepEqual(keys(matched), ['opponent', 'roomId', 'seed', 'status']);
+  const online = { playing: 2, looking: 1 };
+  const waiting: QueueReply = { status: 'waiting', online };
+  const matched: QueueReply = { status: 'matched', roomId: 'r1', seed: 5, opponent: { login: 'b' }, online };
+  assert.deepEqual(keys(waiting), ['online', 'status']);
+  assert.deepEqual(keys(matched), ['online', 'opponent', 'roomId', 'seed', 'status']);
+  assert.deepEqual(keys(waiting.online), ['looking', 'playing']);
   assert.deepEqual(keys((matched as { opponent: object }).opponent), ['login']);
   const config: ConfigReply = { githubClientId: 'x', protocol: 3 };
   assert.deepEqual(keys(config), ['githubClientId', 'protocol']);

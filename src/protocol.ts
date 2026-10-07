@@ -52,9 +52,11 @@ export type BotStartReply = { gameId: string; seed: number };
 export type MarathonStartReply = { gameId: string; seed: number };
 export type ScoreBody = { gameId: string; log: GameLog };
 export type ParsedScoreBody = { gameId: string; log: ReplayLog };
-export type QueueReply =
+export type QueueStatus =
   | { status: 'waiting' }
   | { status: 'matched'; roomId: string; seed: number; opponent: { login: string } };
+export type Online = { playing: number; looking: number };
+export type QueueReply = QueueStatus & { online: Online };
 export type SyncBody = { seq: number; attacks: number[]; snapshot: string; isOver: boolean };
 export type SyncReply = {
   opponent: { login: string; snapshot: string; isOver: boolean } | null;

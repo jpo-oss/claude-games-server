@@ -84,7 +84,7 @@ async function boot(opts: { maxPlayers?: number; maxHeld?: number; replayer?: Re
   const bob = await signIn('bob', 2);
 
   const pair = async (a = alice, b = bob, collectAfterMs = 0) => {
-    assert.deepEqual(await (await queue(a)).json(), { status: 'waiting' });
+    assert.equal(((await (await queue(a)).json()) as QueueReply).status, 'waiting');
     const mb = (await (await queue(b)).json()) as Matched;
     clock.t += collectAfterMs;
     const ma = (await (await queue(a)).json()) as Matched;
@@ -179,20 +179,36 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 test('two players get matched into the same room', async () => {
   const s = await boot();
   try {
-    assert.deepEqual(await (await s.queue(s.alice)).json(), { status: 'waiting' });
-    assert.deepEqual(await (await s.queue(s.alice)).json(), { status: 'waiting' });
+    assert.deepEqual(await (await s.queue(s.alice)).json(), { status: 'waiting', online: { playing: 0, looking: 1 } });
+    assert.deepEqual(await (await s.queue(s.alice)).json(), { status: 'waiting', online: { playing: 0, looking: 1 } });
     const mb = (await (await s.queue(s.bob)).json()) as Matched;
     assert.equal(mb.status, 'matched');
+    assert.deepEqual(mb.online, { playing: 2, looking: 0 });
     assert.match(mb.roomId, /^[A-Za-z0-9_-]{22}$/);
     assert.ok(Number.isInteger(mb.seed) && mb.seed >= 0 && mb.seed < 2 ** 32);
     assert.deepEqual(mb.opponent, { login: 'alice' });
     const ma = (await (await s.queue(s.alice)).json()) as Matched;
     assert.deepEqual(ma, { ...mb, opponent: { login: 'bob' } });
     const carol = await s.signIn('carol', 3);
-    assert.deepEqual(await (await s.queue(carol)).json(), { status: 'waiting' });
+    assert.deepEqual(await (await s.queue(carol)).json(), { status: 'waiting', online: { playing: 2, looking: 1 } });
     assert.equal((await s.call('/v1/battle/queue', { method: 'DELETE' }, carol)).status, 204);
     const dave = await s.signIn('dave', 4);
-    assert.deepEqual(await (await s.queue(dave)).json(), { status: 'waiting' });
+    assert.deepEqual(await (await s.queue(dave)).json(), { status: 'waiting', online: { playing: 2, looking: 1 } });
+  } finally {
+    await s.close();
+  }
+});
+
+test('online counts leave out decided rooms and stale queue entries', async () => {
+  const s = await boot({ maxHeld: 0 });
+  try {
+    const m = await s.pair();
+    await s.syncJson(m.roomId, s.bob, { seq: 0, isOver: true });
+    const carol = await s.signIn('carol', 3);
+    assert.deepEqual(await (await s.queue(carol)).json(), { status: 'waiting', online: { playing: 0, looking: 1 } });
+    s.clock.t += 30_001;
+    const dave = await s.signIn('dave', 4);
+    assert.deepEqual(await (await s.queue(dave)).json(), { status: 'waiting', online: { playing: 0, looking: 1 } });
   } finally {
     await s.close();
   }
@@ -743,7 +759,10 @@ test('main serves the battle routes', async () => {
         headers: { 'x-protocol-version': '3', ...(token ? { authorization: `Bearer ${token}` } : {}) },
       });
     const { session } = (await (await call('/v1/session', { method: 'POST', body: '{"githubToken":"t"}' })).json()) as { session: string };
-    assert.deepEqual(await (await call('/v1/battle/queue', { method: 'POST' }, session)).json(), { status: 'waiting' });
+    assert.deepEqual(await (await call('/v1/battle/queue', { method: 'POST' }, session)).json(), {
+      status: 'waiting',
+      online: { playing: 0, looking: 1 },
+    });
   } finally {
     await s.close();
   }
