@@ -1,6 +1,6 @@
 {
   "name": "claude-games-server",
-  "description": "Game server for Block Battle, a falling-block game that runs inside Claude Code. It handles sign-in, the marathon leaderboard and head-to-head battles, and verifies scores by replaying games.",
+  "description": "Game server for claude-games, games that run inside Claude Code. It handles sign-in, leaderboards, Block Battle battles and score checks, and the Daily Diff word puzzle.",
   "scripts": {
     "test": "node --test",
     "typecheck": "tsc --noEmit",

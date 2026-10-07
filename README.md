@@ -1,6 +1,6 @@
 # claude-games-server
 
-Game server for Block Battle, a falling-block game that runs inside Claude Code. It handles sign-in, the Marathon and Vs Bot leaderboards and head-to-head battles, and checks scores and wins by replaying the games. The game itself lives in [jpo-oss/claude-games](https://github.com/jpo-oss/claude-games). Players can point it at any server, so you can run your own.
+Game server for the games in [jpo-oss/claude-games](https://github.com/jpo-oss/claude-games), which run inside Claude Code. It handles sign-in for all of them. For Block Battle it runs the Marathon and Vs Bot leaderboards and head-to-head battles, and checks scores and wins by replaying the games. For Daily Diff it holds each day's word, marks guesses, and keeps streaks and the leaderboards. Block Battle players can point the game at any server, so you can run your own. Daily Diff only talks to the official server for now.
 
 ## What you need
 
