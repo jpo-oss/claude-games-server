@@ -83,7 +83,7 @@ export function dailyDiffStore(db: DatabaseSync) {
         if (!p) {
           const last = new Map((q.lastUse.all() as { word: string; last: string }[]).map((r) => [r.word, r.last]));
           const fresh = answers.filter((w) => !last.has(w));
-          // ponytail: once every answer has had a day, the least recently used comes back; shuffle the oldest few if repeats feel predictable
+          // Once every answer has had a day, the one used longest ago comes back.
           const word = fresh.length ? fresh[rand(fresh.length)]! : [...answers].sort((a, b) => last.get(a)!.localeCompare(last.get(b)!))[0]!;
           p = { day, number: (q.nextNumber.get() as { n: number }).n, word };
           q.addPuzzle.run(p.day, p.number, p.word);
@@ -117,7 +117,7 @@ export function dailyDiffStore(db: DatabaseSync) {
     },
 
     board(period: Period, today: string, from: string, createdBefore: number, login: string) {
-      // ponytail: ranks every finisher in the window then slices; fine to tens of thousands of players
+      // Ranks every finisher in the window, then keeps the top. Fine up to tens of thousands of players.
       const ranked: BoardRow[] =
         period === 'today'
           ? (q.today.all(today, createdBefore) as { login: string; solved: number; n: number; ms: number }[]).map((r, i) => ({

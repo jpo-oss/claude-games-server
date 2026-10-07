@@ -108,7 +108,7 @@ Daily Diff, the once-a-day word puzzle, needs two word files that this repo does
 
 One lowercase five-letter word per line. Every answer is also a valid guess. Never commit these files; the folder is in `.gitignore`.
 
-Compose mounts the folder and sets `DAILY_DIFF_WORDS_DIR=/words`. Without Docker, set `DAILY_DIFF_WORDS_DIR` to the folder yourself. If the files are missing or empty, the Daily Diff routes answer 503 and Block Battle is unaffected. The server logs which case it is at startup.
+Compose mounts the folder and sets `DAILY_DIFF_WORDS_DIR=/words`. Without Docker, set `DAILY_DIFF_WORDS_DIR` to the folder yourself. If the files are missing or empty, the Daily Diff routes answer 503 and Block Battle is unaffected. The startup log says whether the words loaded.
 
 ## Running without Docker
 
