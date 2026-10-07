@@ -5,6 +5,7 @@ import type { Game, Input, Mode } from '../src/engine.ts';
 import type { ReplayLog } from '../src/protocol.ts';
 import { MAX_STEPS } from '../src/protocol.ts';
 import { createReplayer, replay, STEP_MS } from '../src/replay.ts';
+import { digest, record } from './record.ts';
 
 const POOL: Input[] = [
   'hardDrop', 'hardDrop', 'hardDrop', 'left', 'right', 'rotateCW', 'rotateCCW',
@@ -230,4 +231,59 @@ test('queued jobs resolve closed after close()', async () => {
   assert.equal(rp.active(), 0);
   assert.deepEqual(await second, { ok: false, error: 'closed' });
   assert.deepEqual(await first, { ok: false, error: 'closed' });
+});
+
+// The literal from claude-games tests/match.test.ts GOLDEN.
+const GOLDEN = '591 bot 86e2d9fb';
+
+test('the bot plays the same on Node as in the game', () => {
+  assert.equal(digest(record(4242, 'hard', 20_000).m), GOLDEN);
+});
+
+test('a bot match replays to the winner and step count it was recorded with', () => {
+  const { log, m } = record(4242, 'hard', 20_000);
+  assert.notEqual(m.winner, null);
+  const r = replay({ seed: 4242, mode: 'battle', log, level: 'hard' });
+  assert.ok(r.ok);
+  assert.equal(r.winner, m.winner);
+  assert.equal(r.topOutStep, m.steps - 1);
+  assert.equal(r.isOver, true);
+});
+
+test('a bot log that stops before the match ends has no winner', () => {
+  const r = replay({ seed: 4242, mode: 'battle', log: { steps: 1, inputs: [] }, level: 'easy' });
+  assert.ok(r.ok);
+  assert.equal(r.winner, null);
+  assert.equal(r.topOutStep, null);
+});
+
+test('input after a bot match ended is rejected', () => {
+  const { log, m } = record(4242, 'hard', 20_000);
+  const bad = { steps: m.steps + 5, inputs: [...log.inputs, [m.steps + 2, 'left']] as typeof log.inputs };
+  assert.deepEqual(replay({ seed: 4242, mode: 'battle', log: bad, level: 'hard' }), { ok: false, error: 'input after game over' });
+});
+
+test('garbage in a bot log is rejected', () => {
+  const log = { steps: 10, inputs: [], garbage: [[2, 1]] as [number, number][] };
+  assert.deepEqual(replay({ seed: 1, mode: 'battle', log, level: 'easy' }), { ok: false, error: 'garbage in a bot log' });
+});
+
+test('bot jobs get their own longer timeout', async () => {
+  const p = createReplayer({ maxConcurrent: 1, timeoutMs: 1, botTimeoutMs: 30_000, maxQueue: 4 });
+  try {
+    const { log } = record(7, 'hard', 3_000);
+    const r = await p.run({ seed: 7, mode: 'battle', log, level: 'hard' });
+    assert.equal(r.ok, true);
+  } finally {
+    await p.close();
+  }
+});
+
+test('a long bot match replays fast enough for the bot timeout', () => {
+  const { log } = record(5, 'easy', 60_000, 'hard');
+  assert.ok(log.steps > 2_000);
+  const t0 = performance.now();
+  replay({ seed: 5, mode: 'battle', log, level: 'easy' });
+  // 450,000 steps at this rate stay under the 60 s bot timeout.
+  assert.ok((performance.now() - t0) / log.steps < 0.1);
 });

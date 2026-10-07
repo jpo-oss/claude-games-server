@@ -2,6 +2,8 @@ import { Worker } from 'node:worker_threads';
 import { newGame, receiveGarbage, step } from './engine.ts';
 import type { Input, Mode } from './engine.ts';
 import type { ReplayLog } from './protocol.ts';
+import { newMatch, stepMatch } from './match.ts';
+import type { Level } from './bot.ts';
 
 export const STEP_MS = 16;
 
@@ -10,6 +12,7 @@ export type ReplayJob = {
   mode: Mode;
   log: ReplayLog;
   garbage?: Map<number, number>;
+  level?: Level;
 };
 
 export type ReplayResult =
@@ -21,11 +24,13 @@ export type ReplayResult =
       isOver: boolean;
       topOutStep: number | null;
       attacks: number[];
+      winner?: 'me' | 'bot' | null;
     }
   | { ok: false; error: string };
 
 // The log must already have passed parseGameLog.
 export function replay(job: ReplayJob): ReplayResult {
+  if (job.level !== undefined) return replayBot(job.seed, job.level, job.log);
   const { log } = job;
   let game = newGame(job.mode, job.seed);
   const attacks: number[] = [];
@@ -61,6 +66,37 @@ export function replay(job: ReplayJob): ReplayResult {
   return { ok: true, score: game.score, lines: game.lines, level: game.level, isOver: game.isOver, topOutStep, attacks };
 }
 
+// The player's board from the log, the bot from its own copy of bot.ts, in match.ts's step order.
+function replayBot(seed: number, level: Level, log: ReplayLog): ReplayResult {
+  if (log.garbage && log.garbage.length > 0) return { ok: false, error: 'garbage in a bot log' };
+  const m = newMatch(seed, level);
+  let ii = 0;
+  let endStep: number | null = null;
+  for (let i = 0; i < log.steps; i++) {
+    const inputs: Input[] = [];
+    while (ii < log.inputs.length && log.inputs[ii]![0] <= i) {
+      if (log.inputs[ii]![0] === i) inputs.push(log.inputs[ii]![1]);
+      ii++;
+    }
+    stepMatch(m, inputs);
+    if (m.winner) {
+      endStep = i;
+      break;
+    }
+  }
+  if (endStep !== null && (log.inputs.at(-1)?.[0] ?? -1) > endStep) return { ok: false, error: 'input after game over' };
+  return {
+    ok: true,
+    score: m.me.score,
+    lines: m.me.lines,
+    level: m.me.level,
+    isOver: m.winner !== null,
+    topOutStep: endStep,
+    attacks: [],
+    winner: m.winner,
+  };
+}
+
 export type WorkerJob = Omit<ReplayJob, 'garbage'> & { garbage?: [number, number][] };
 
 type Pending = {
@@ -68,9 +104,11 @@ type Pending = {
   resolve: (r: ReplayResult) => void;
 };
 
-export function createReplayer(opts: { maxConcurrent?: number; timeoutMs?: number; maxQueue?: number } = {}) {
+export function createReplayer(opts: { maxConcurrent?: number; timeoutMs?: number; botTimeoutMs?: number; maxQueue?: number } = {}) {
   const maxConcurrent = opts.maxConcurrent ?? 2;
   const timeoutMs = opts.timeoutMs ?? 10_000;
+  // A Vs Bot replay also runs the bot, and a match can last up to 2 hours.
+  const botTimeoutMs = opts.botTimeoutMs ?? 60_000;
   const maxQueue = opts.maxQueue ?? 32;
   const queue: Pending[] = [];
   // A slot stays taken until its worker has fully exited.
@@ -106,7 +144,7 @@ export function createReplayer(opts: { maxConcurrent?: number; timeoutMs?: numbe
       worker = new Worker(new URL('./replay-worker.ts', import.meta.url), {
         resourceLimits: { maxOldGenerationSizeMb: 64 },
       });
-      timer = setTimeout(() => finish({ ok: false, error: 'timeout' }), timeoutMs);
+      timer = setTimeout(() => finish({ ok: false, error: 'timeout' }), job.level === undefined ? timeoutMs : botTimeoutMs);
       worker.once('message', (r: ReplayResult) => finish(r));
       worker.once('error', () => finish({ ok: false, error: 'replay failed' }));
       worker.once('exit', () => finish({ ok: false, error: 'replay failed' }));
