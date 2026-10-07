@@ -1,7 +1,7 @@
 import type { Db } from '../db.ts';
 import type { Github } from '../github.ts';
 import type { Route } from '../http.ts';
-import { PROTOCOL_VERSION, parseSessionBody } from '../protocol.ts';
+import { PROTOCOLS, PROTOCOL_VERSION, parseSessionBody } from '../protocol.ts';
 import type { ConfigReply, SessionReply } from '../protocol.ts';
 
 export function sessionRoutes(deps: { db: Db; github: Github; clientId: string }): Route[] {
@@ -11,7 +11,7 @@ export function sessionRoutes(deps: { db: Db; github: Github; clientId: string }
       path: '/v1/config',
       auth: false,
       handler: async () => {
-        const body: ConfigReply = { githubClientId: deps.clientId, protocol: PROTOCOL_VERSION };
+        const body: ConfigReply = { githubClientId: deps.clientId, protocol: PROTOCOL_VERSION, protocols: PROTOCOLS };
         return { status: 200, body };
       },
     },

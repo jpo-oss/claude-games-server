@@ -6,18 +6,21 @@ export function battleRoutes(arena: Arena): Route[] {
   return [
     {
       method: 'POST',
+      game: 'block-battle',
       path: '/v1/battle/queue',
       auth: true,
       handler: async (ctx) => arena.join(ctx.login!),
     },
     {
       method: 'DELETE',
+      game: 'block-battle',
       path: '/v1/battle/queue',
       auth: true,
       handler: async (ctx) => arena.leave(ctx.login!),
     },
     {
       method: 'POST',
+      game: 'block-battle',
       path: '/v1/battle/:room/sync',
       auth: true,
       handler: async (ctx) => {
@@ -28,6 +31,7 @@ export function battleRoutes(arena: Arena): Route[] {
     },
     {
       method: 'POST',
+      game: 'block-battle',
       path: '/v1/battle/:room/log',
       auth: true,
       bodyLimit: 1_572_864,

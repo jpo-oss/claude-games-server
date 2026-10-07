@@ -273,3 +273,33 @@ test('a handler that outlives requestTimeout after the body is read still comple
     server.close();
   }
 });
+
+async function serveRoutes(list: Route[]) {
+  const server = createServer(createHandler({ routes: list, findSession: () => null, trustProxy: false, log: () => {} }));
+  await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+  const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  return { url, close: () => { server.closeAllConnections(); server.close(); } };
+}
+
+test('each game is checked against its own protocol version', async () => {
+  const ok = async () => ({ status: 200, body: {} });
+  const s = await serveRoutes([
+    { method: 'GET', path: '/v1/bb', auth: false, game: 'block-battle', handler: ok },
+    { method: 'GET', path: '/v1/dd', auth: false, game: 'daily-diff', handler: ok },
+    { method: 'GET', path: '/v1/any', auth: false, handler: ok },
+  ]);
+  const get = (path: string, headers: Record<string, string>) => fetch(`${s.url}${path}`, { headers }).then((r) => r.status);
+  try {
+    assert.equal(await get('/v1/bb', { 'x-protocol-version': '3' }), 200);
+    assert.equal(await get('/v1/dd', { 'x-protocol-version': '1', 'x-game': 'daily-diff' }), 200);
+    assert.equal(await get('/v1/dd', { 'x-protocol-version': '3' }), 426);
+    assert.equal(await get('/v1/bb', { 'x-protocol-version': '1', 'x-game': 'daily-diff' }), 426);
+    assert.equal(await get('/v1/any', { 'x-protocol-version': '1', 'x-game': 'daily-diff' }), 200);
+    assert.equal(await get('/v1/any', { 'x-protocol-version': '3' }), 200);
+    assert.equal(await get('/v1/any', { 'x-protocol-version': '1', 'x-game': 'constructor' }), 426);
+    const r = await fetch(`${s.url}/v1/bb`, { headers: { 'x-protocol-version': '2' } });
+    assert.deepEqual(await r.json(), { error: 'protocol 3 required' });
+  } finally {
+    s.close();
+  }
+});
