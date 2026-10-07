@@ -2,6 +2,7 @@
 import { parseArgs } from 'node:util';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { start } from '../src/main.ts';
+import { PROTOCOL_VERSION } from '../src/protocol.ts';
 
 const { values } = parseArgs({ options: { players: { type: 'string', default: '500' }, seconds: { type: 'string', default: '60' } } });
 const N = Math.max(2, Number(values.players) & ~1);
@@ -37,7 +38,7 @@ let matched = 0;
 const countError = (k: string | number) => errors.set(String(k), (errors.get(k as string) ?? 0) + 1);
 
 async function player(i: number, endAt: { t: number }) {
-  const headers: Record<string, string> = { 'x-protocol-version': '2', 'x-forwarded-for': `10.${i >> 16}.${(i >> 8) & 255}.${i & 255}` };
+  const headers: Record<string, string> = { 'x-protocol-version': String(PROTOCOL_VERSION), 'x-forwarded-for': `10.${i >> 16}.${(i >> 8) & 255}.${i & 255}` };
   const call = (path: string, init: RequestInit = {}) =>
     fetch(base + path, { ...init, headers: { ...headers, ...(init.headers as object) } });
   try {

@@ -1,5 +1,5 @@
 // The .ts extensions let the server run a byte-identical copy under Node.
-import { cellsOf } from './engine.ts'
+import { cellsOf, step } from './engine.ts'
 import type { Game, GameEvent, Input, Kind } from './engine.ts'
 
 export type Level = 'easy' | 'medium' | 'hard'
@@ -275,7 +275,18 @@ export function botInputs(b: Bot, game: Game): Input[] {
 }
 
 // Without a top speed the bot's own line clears raise its level until pieces outrun its pace.
-export const capSpeed = (b: Bot, game: Game): Game => (game.level > TUNING[b.level].top ? { ...game, level: TUNING[b.level].top } : game)
+const capSpeed = (b: Bot, game: Game): Game => (game.level > TUNING[b.level].top ? { ...game, level: TUNING[b.level].top } : game)
+
+// One step of the bot's board. Inputs and gravity run as two engine steps so a clear that raises
+// the level is capped before the next piece falls. A lock by gravity alone can still spend the
+// rest of its step at the engine's level.
+export function botStep(b: Bot, game: Game, dtMs: number): { game: Game; events: GameEvent[] } {
+  const moved = step(game, botInputs(b, game), 0)
+  const fell = step(capSpeed(b, moved.game), [], dtMs)
+  const events = [...moved.events, ...fell.events]
+  botSaw(b, events)
+  return { game: capSpeed(b, fell.game), events }
+}
 
 export function botSaw(b: Bot, events: readonly GameEvent[]): void {
   if (!events.some(e => e.type === 'lock' || e.type === 'topOut')) return
