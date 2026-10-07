@@ -1,6 +1,7 @@
 import { isIP } from 'node:net';
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { PROTOCOL_VERSION } from './protocol.ts';
+import { PROTOCOLS } from './protocol.ts';
+import type { GameId } from './protocol.ts';
 import { bucket } from './limits.ts';
 
 export type Ctx = {
@@ -19,6 +20,7 @@ export type Route = {
   method: string;
   path: string;
   auth: boolean;
+  game?: GameId;
   bodyLimit?: number;
   limit?: { ratePerSec: number; burst: number; by: 'ip' };
   handler: (ctx: Ctx) => Promise<Reply>;
@@ -113,8 +115,14 @@ export function createHandler(deps: {
       if (!route) return early(pathMatched ? 405 : 404, { error: pathMatched ? 'method not allowed' : 'not found' });
       pattern = route.path;
 
-      if (!NO_PROTOCOL.has(path) && req.headers['x-protocol-version'] !== String(PROTOCOL_VERSION)) {
-        return early(426, { error: `protocol ${PROTOCOL_VERSION} required` });
+      const header = req.headers['x-game'];
+      const game = typeof header === 'string' ? header : 'block-battle';
+      const want = Object.hasOwn(PROTOCOLS, game) ? PROTOCOLS[game as GameId] : null;
+      if (
+        !NO_PROTOCOL.has(path) &&
+        (want === null || (route.game !== undefined && route.game !== game) || req.headers['x-protocol-version'] !== String(want))
+      ) {
+        return early(426, { error: `protocol ${PROTOCOLS[route.game ?? 'block-battle']} required` });
       }
 
       const fwd = req.headers['x-forwarded-for'];

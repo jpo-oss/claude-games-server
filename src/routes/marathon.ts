@@ -24,12 +24,14 @@ export function marathonRoutes(deps: Deps): Route[] {
   return [
     {
       method: 'GET',
+      game: 'block-battle',
       path: '/v1/leaderboard',
       auth: true,
       handler: async (ctx) => ({ status: 200, body: db.leaderboard(ctx.now) }),
     },
     {
       method: 'POST',
+      game: 'block-battle',
       path: '/v1/marathon',
       auth: true,
       handler: async (ctx) => {
@@ -43,6 +45,7 @@ export function marathonRoutes(deps: Deps): Route[] {
     },
     {
       method: 'POST',
+      game: 'block-battle',
       path: '/v1/scores',
       auth: true,
       bodyLimit: 1_572_864,

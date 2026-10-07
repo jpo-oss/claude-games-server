@@ -19,6 +19,7 @@ export function botRoutes(deps: Deps): Route[] {
   return [
     {
       method: 'POST',
+      game: 'block-battle',
       path: '/v1/bot',
       auth: true,
       handler: async (ctx) => {
@@ -34,6 +35,7 @@ export function botRoutes(deps: Deps): Route[] {
     },
     {
       method: 'POST',
+      game: 'block-battle',
       path: '/v1/bot/scores',
       auth: true,
       bodyLimit: 1_572_864,

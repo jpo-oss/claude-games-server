@@ -2,11 +2,12 @@ import { DatabaseSync } from 'node:sqlite';
 import { createHash, randomBytes } from 'node:crypto';
 import { LEVELS } from './bot.ts';
 import type { Level } from './bot.ts';
+import { dailyDiffStore } from './daily-diff/store.ts';
 import type { BotRow, LeaderboardReply } from './protocol.ts';
 
 const DAY = 24 * 3600 * 1000;
 const SESSION_IDLE = 30 * DAY;
-const MIN_ACCOUNT_AGE = 30 * DAY;
+export const MIN_ACCOUNT_AGE = 30 * DAY;
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS players (
@@ -88,6 +89,7 @@ export function openDb(path: string) {
   if (path !== ':memory:') db.exec('PRAGMA journal_mode = WAL');
   db.exec('PRAGMA foreign_keys = ON');
   db.exec(SCHEMA);
+  const dailyDiff = dailyDiffStore(db);
 
   const q = {
     staleHolder: db.prepare('SELECT github_id FROM players WHERE login = ? AND github_id != ?'),
@@ -146,6 +148,7 @@ export function openDb(path: string) {
   };
 
   return {
+    dailyDiff,
     close() {
       db.close();
     },

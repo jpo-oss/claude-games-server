@@ -13,6 +13,8 @@ import { botRoutes } from './routes/bot.ts';
 import { createReplayer } from './replay.ts';
 import { createArena } from './arena.ts';
 import { battleRoutes } from './routes/battle.ts';
+import { dailyDiffRoutes } from './routes/daily-diff.ts';
+import { loadWords } from './daily-diff/words.ts';
 
 export type Config = {
   port: number;
@@ -23,6 +25,7 @@ export type Config = {
   maxPlayers: number;
   maxConnections: number;
   trustProxy: boolean;
+  dailyDiffWordsDir?: string | undefined;
 };
 
 export function loadConfig(env: Record<string, string | undefined>): Config {
@@ -47,6 +50,7 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
     maxPlayers: int('MAX_PLAYERS', 1000),
     maxConnections: int('MAX_CONNECTIONS', 4000),
     trustProxy: env.TRUST_PROXY === 'true',
+    dailyDiffWordsDir: env.DAILY_DIFF_WORDS_DIR || undefined,
   };
 }
 
@@ -66,6 +70,7 @@ export async function start(
   opts: {
     fetch?: typeof fetch;
     log?: (line: string) => void;
+    now?: () => number;
     replayer?: Pick<ReturnType<typeof createReplayer>, 'run' | 'close'>;
   } = {},
 ): Promise<{ port: number; close: () => Promise<void> }> {
@@ -73,6 +78,8 @@ export async function start(
   const db = openDb(config.databasePath);
   const replayer = opts.replayer ?? createReplayer({ maxConcurrent: 2, timeoutMs: 10_000, botTimeoutMs: 60_000, maxQueue: 32 });
   const arena = createArena({ db, replayer, maxPlayers: config.maxPlayers, maxHeld: config.maxHeld });
+  const words = loadWords(config.dailyDiffWordsDir);
+  (opts.log ?? console.log)(words ? 'daily diff: words loaded' : 'daily diff: off, no word files');
   const routes: Route[] = [
     { method: 'GET', path: '/health', auth: false, handler: async () => ({ status: 200, body: { ok: true } }) },
     ...sessionRoutes({
@@ -87,6 +94,7 @@ export async function start(
     ...marathonRoutes({ db, replayer }),
     ...botRoutes({ db, replayer }),
     ...battleRoutes(arena),
+    ...dailyDiffRoutes({ db, words }),
   ];
   const server = createServer(
     createHandler({
@@ -94,6 +102,7 @@ export async function start(
       findSession: (key, now) => db.findSession(key, now),
       trustProxy: config.trustProxy,
       log: opts.log,
+      now: opts.now,
     }),
   );
   applyLimits(server, config.maxConnections);

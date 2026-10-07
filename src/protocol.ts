@@ -2,7 +2,9 @@ import type { Input } from './engine.ts';
 import { LEVELS } from './bot.ts';
 import type { Level } from './bot.ts';
 
-export const PROTOCOL_VERSION = 3;
+export const PROTOCOLS = { 'block-battle': 3, 'daily-diff': 1 } as const;
+export type GameId = keyof typeof PROTOCOLS;
+export const PROTOCOL_VERSION = PROTOCOLS['block-battle'];
 
 export const INPUT_NAMES = [
   'left',
@@ -38,7 +40,7 @@ export type ReplayLog = {
   garbage?: [number, number][];
 };
 
-export type ConfigReply = { githubClientId: string; protocol: 3 };
+export type ConfigReply = { githubClientId: string; protocol: 3; protocols: typeof PROTOCOLS };
 export type SessionBody = { githubToken: string };
 export type SessionReply = { session: string; login: string };
 export type BotRow = { login: string; ms: number; at: number };

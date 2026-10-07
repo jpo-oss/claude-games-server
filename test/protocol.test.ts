@@ -187,8 +187,8 @@ test('QueueReply, ConfigReply and SessionReply shapes', () => {
   assert.deepEqual(keys(matched), ['online', 'opponent', 'roomId', 'seed', 'status']);
   assert.deepEqual(keys(waiting.online), ['looking', 'playing']);
   assert.deepEqual(keys((matched as { opponent: object }).opponent), ['login']);
-  const config: ConfigReply = { githubClientId: 'x', protocol: 3 };
-  assert.deepEqual(keys(config), ['githubClientId', 'protocol']);
+  const config: ConfigReply = { githubClientId: 'x', protocol: 3, protocols: { 'block-battle': 3, 'daily-diff': 1 } };
+  assert.deepEqual(keys(config), ['githubClientId', 'protocol', 'protocols']);
   const session: SessionReply = { session: 's', login: 'a' };
   assert.deepEqual(keys(session), ['login', 'session']);
 });

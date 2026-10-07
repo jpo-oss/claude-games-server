@@ -35,7 +35,7 @@ test('config', async () => {
   const s = await boot(fakeGithub());
   try {
     const r = await fetch(`http://127.0.0.1:${s.port}/v1/config`);
-    assert.deepEqual(await r.json(), { githubClientId: 'cid', protocol: 3 });
+    assert.deepEqual(await r.json(), { githubClientId: 'cid', protocol: 3, protocols: { 'block-battle': 3, 'daily-diff': 1 } });
   } finally {
     await s.close();
   }
@@ -178,6 +178,17 @@ test('sign-in is limited to 5 per minute per ip', async () => {
   try {
     for (let i = 0; i < 5; i++) assert.equal((await s.signIn()).status, 200);
     assert.equal((await s.signIn()).status, 429);
+  } finally {
+    await s.close();
+  }
+});
+
+test('config lists every game protocol', async () => {
+  const s = await boot(fakeGithub());
+  try {
+    const body = await (await s.call('/v1/config')).json();
+    assert.equal(body.protocol, 3);
+    assert.deepEqual(body.protocols, { 'block-battle': 3, 'daily-diff': 1 });
   } finally {
     await s.close();
   }
