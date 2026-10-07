@@ -5,7 +5,7 @@ import { STEP_MS } from './replay.ts';
 import type { ReplayJob, ReplayResult } from './replay.ts';
 import { collect, emptyQueue, joinQueue, leaveQueue, liveQueue, newRoom, syncRoom } from './battle.ts';
 import type { RoomReply, RoomState } from './battle.ts';
-import type { ReplayLog, SyncBody, SyncReply } from './protocol.ts';
+import type { QueueReply, ReplayLog, SyncBody, SyncReply } from './protocol.ts';
 
 export type ArenaTiming = { holdMs?: number; winnerLogMs?: number; retryMs?: number; sweepMs?: number };
 
@@ -218,7 +218,10 @@ export function createArena(deps: {
       }
       queue = out.state;
       if (out.result.status === 'matched') rooms.get(out.result.roomId)?.joinedAt.set(login, t);
-      return { status: 200, body: out.result };
+      let playing = 0;
+      for (const live of rooms.values()) if (live.state.result === null) playing += 2;
+      const body: QueueReply = { ...out.result, online: { playing, looking: queue.waiting.length } };
+      return { status: 200, body };
     },
 
     leave(login: string): Reply {

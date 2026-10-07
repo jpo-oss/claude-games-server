@@ -1,4 +1,4 @@
-import type { QueueReply, SyncBody } from './protocol.ts';
+import type { QueueStatus, SyncBody } from './protocol.ts';
 
 export const QUEUE_TTL_MS = 30_000;
 export const ASSIGN_TTL_MS = 30_000;
@@ -30,7 +30,7 @@ export function joinQueue(
   me: string,
   now: number,
   make: () => { roomId: string; seed: number },
-): { state: QueueState; result: QueueReply; room?: NewRoom } {
+): { state: QueueState; result: QueueStatus; room?: NewRoom } {
   const { waiting, assigned } = liveQueue(s, now);
 
   const mine = assigned[me];
