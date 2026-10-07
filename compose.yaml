@@ -6,8 +6,10 @@ services:
     env_file: .env
     environment:
       TRUST_PROXY: "true"
+      DAILY_DIFF_WORDS_DIR: /words
     volumes:
       - server-data:/data
+      - ./daily-diff-words:/words:ro
     restart: unless-stopped
 
   caddy:

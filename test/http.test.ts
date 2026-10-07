@@ -207,6 +207,7 @@ test('loadConfig defaults', () => {
     maxPlayers: 1000,
     maxConnections: 4000,
     trustProxy: false,
+    dailyDiffWordsDir: undefined,
   });
 });
 

@@ -99,6 +99,17 @@ Set these in `.env`. The compose file already sets `TRUST_PROXY`, and the contai
 
 Per-address and per-player rate limits are built in.
 
+## Daily Diff words
+
+Daily Diff, the once-a-day word puzzle, needs two word files that this repo does not ship. Put them in a folder named `daily-diff-words` next to `compose.yaml`:
+
+- `answers.txt`: the words a puzzle can pick.
+- `guesses.txt`: extra words players may guess.
+
+One lowercase five-letter word per line. Every answer is also a valid guess. Never commit these files; the folder is in `.gitignore`.
+
+Compose mounts the folder and sets `DAILY_DIFF_WORDS_DIR=/words`. Without Docker, set `DAILY_DIFF_WORDS_DIR` to the folder yourself. If the files are missing or empty, the Daily Diff routes answer 503 and Block Battle is unaffected. The server logs which case it is at startup.
+
 ## Running without Docker
 
 You need Node 24 or newer.
